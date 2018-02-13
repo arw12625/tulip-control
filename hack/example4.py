@@ -9,6 +9,4 @@ ts."""
 import __init__
 from bisimu import *
 
-[ts_simu,G0] = simu_abstract(ts,'bi')
-
-#G2= dual_simu(ts)
+[ts_simu,G0] = simu_abstract(ts,'dual')
