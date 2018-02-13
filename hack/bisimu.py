@@ -233,7 +233,7 @@ def simu_abstract(ts,simu_type):
         # calculuate its pre in G
         pre_i = pre(G,G0.node[i]['cov'])
         # intersect the pre of node with states of other nodes
-        for j in G0.predecessors_iter(i):
+        for j in G0.predecessors(i):
             cov_j = G0.node[j]['cov']
             
             if pre_i.intersection(cov_j)==set():
