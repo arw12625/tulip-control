@@ -5,11 +5,8 @@ Created on Mon Feb  5 23:42:48 2018
 
 @author: zexiang
 """
-import sys, os
-import logging
 
-sys.path.append(os.path.abspath('..'))
-sys.path.append(os.path.abspath('../tulip'))
+import logging
 
 from tulip import transys, spec, synth
 
