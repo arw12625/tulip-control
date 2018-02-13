@@ -175,7 +175,7 @@ def simu_abstract(ts,simu_type):
     """Create a bi/dual-simulation abstraction for a Finite Transition System.
     
     @param ts: L{FTS}
-    @param simu_type: flag defined as string 'bi'/'dual'
+    @param simu_type: string 'bi'/'dual', flag used to switch b.w. bisimu and dual-simu
     @return: L{FTS}
     
     References
@@ -205,8 +205,7 @@ def simu_abstract(ts,simu_type):
     G0 = nx.MultiDiGraph() # a graph associated with the coarsest partition
     num_cell = 0
     
-    for i in G:
-        node = G.node.keys()[i]
+    for node in G:
         ap = repr(G.node[node]['ap'])
         if not S0.has_key(ap):
             S0[ap]=set()
@@ -263,22 +262,15 @@ def simu_abstract(ts,simu_type):
 #        print 'num of cell is', num_cell
                     
     # construct new FTS
-#    env_actions = [
-#                {'name': 'env_actions',
-#                 'values': ts.env_actions,
-#                 'setter': True}]
-#    sys_actions = [
-#                {'name': 'sys_actions',
-#                 'values': ts.sys_actions,
-#                 'setter': True}]
-#    ts_simu = FTS(env_actions,sys_actions)
-#    ts_simu.states.initial.add(ts.states.initial)
-#    ts_simu.add_nodes_from(G0.nodes())
-#    ts_simu.add_edges_from(G0.edges())
-#    ts_simu.atomic_propositions.add_from(ts.atomic_propositions)
-#    for i in ts_simu:
-#        ts_simu.states.add(i, ap=G0.node[i]['ap'])
-    # build hash-table mapping nodes in ts to nodes in G0
+    env_actions = [
+                {'name': 'env_actions',
+                 'values': ts.env_actions,
+                 'setter': True}]
+    sys_actions = [
+                {'name': 'sys_actions',
+                 'values': ts.sys_actions,
+                 'setter': True}]
+    ts_simu = FTS(env_actions,sys_actions)
     ts2simu = {}
     for i in G0:
         for j in G0.node[i]['cov']:
@@ -290,17 +282,34 @@ def simu_abstract(ts,simu_type):
     S = G0.nodes()
     S0 = set()
     for i in ts.states.initial:
-        S0.add(ts2simu[i])
+        [S0.add(j) for j in ts2simu[i]]
     AP = ts.aps
     
     L = []
     for i in G0:
         L.append((i,eval(G0.node[i]['ap'])))
-    Act = ts.actions
+    # do we consider actions for bi/dual simulation abstraction?
+#    if((len(ts.actions['sys_actions'])+len(ts.actions['env_actions']))==0):
+    Act = None
+#    else:
+#        Act = ts.actions
     
     trans=[]
+#    if((len(ts.actions['sys_actions'])+len(ts.actions['env_actions']))!=0):
+#        for i,j in G0.edges_iter():
+#            trans.append((i,j,G0.edge[i][j]))
+#    else:
     for i,j in G0.edges_iter():
-        trans.append((i,j,G0.edge[i][j]))
+        trans.append((i,j))    
         
-    ts_simu = FTS(env_actions,sys_actions)
-    return ts_simu
+    ts_simu = tuple2fts(S,S0,AP,L,Act,trans,name=simu_type,prepend_str='')
+    
+#    ts_simu.add_nodes_from(G0.nodes())
+#    ts_simu.states.initial.add(S0)
+#    ts_simu.add_edges_from(G0.edges())
+#    ts_simu.atomic_propositions.add_from(ts.atomic_propositions)
+#    for i in ts_simu:
+#        ts_simu.states.add(i, ap=G0.node[i]['ap'])
+    # build hash-table mapping nodes in ts to nodes in G0
+    
+    return ts_simu, G0

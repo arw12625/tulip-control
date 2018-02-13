@@ -5,7 +5,7 @@ Created on Sun Feb 11 23:18:08 2018
 
 Run example3.py first
 @author: zexiang
-"""
+ts."""
 import __init__
 from bisimu import *
 
