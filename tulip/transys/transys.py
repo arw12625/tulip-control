@@ -583,7 +583,8 @@ def tuple2fts(S, S0, AP, L, Act, trans, name='fts',
                          '--->' + str(to_state) + '\n')
             ts.transitions.add(from_state, to_state)
     else:
-        ts.actions |= actions
+        for key in ts.actions:            
+            ts.actions[key]|= actions[key]
         for from_state, to_state, act in transitions:
             (from_state, to_state) = prepend_with([from_state, to_state],
                                                   prepend_str)
