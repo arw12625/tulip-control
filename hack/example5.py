@@ -12,7 +12,8 @@ import numpy as np
 import __init__
 from tulip import spec, synth, hybrid
 from polytope import box2poly
-from tulip.abstract import prop2part, discretize
+from tulip.abstract import prop2part
+from dual_simu_cont import discretize_dual
 from tulip.abstract.plot import plot_partition
 
 from polytope import box2poly
@@ -81,7 +82,7 @@ cont_partition = prop2part(cont_state_space, cont_props)
 plot_partition(cont_partition) if show else None
 
 # Given dynamics & proposition-preserving partition, find feasible transitions
-disc_dynamics = dual_discretize(
+disc_dynamics = discretize_dual(
     cont_partition, sys_dyn, closed_loop=True,
     N=8, min_cell_volume=0.1, plotit=show
 )
