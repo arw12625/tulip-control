@@ -36,7 +36,7 @@ def discretize_dual(
     trans_length=1, remove_trans=False,
     abs_tol=1e-7,
     plotit=False, save_img=False, cont_props=None,
-    plot_every=1
+    plot_every=1, simu_type = 'bi'
 ):
     """Refine the partition and establish transitions
     based on reachability analysis.
@@ -84,7 +84,12 @@ def discretize_dual(
 
     @param cont_props: continuous propositions to plot
     @type cont_props: list of C{Polytope}
-
+    
+    @param simu_type: flag used to choose abstraction algorithm
+        (bisimulation or dual-simulation). 
+    @type simu_type: string, 'bi' or 'dual'
+        default = 'bi'
+    
     @rtype: L{AbstractPwa}
     """
     start_time = os.times()[0]
@@ -243,7 +248,10 @@ def discretize_dual(
         risect, xi = pc.cheby_ball(isect)
 
         #logger.debug('si \ s0')
-        diff = si.diff(S0)
+        if simu_type == 'bi':
+            diff = si.diff(S0)
+        elif simu_type == 'dual':
+            diff = si
         vol2 = diff.volume
         rdiff, xd = pc.cheby_ball(diff)
 
@@ -327,9 +335,12 @@ def discretize_dual(
             """Update transition matrix"""
             transitions = np.pad(transitions, (0,num_new), 'constant')
 
+            if(simu_type == 'dual'):
+                transitions[new_idx[0], :] = transitions[i, :] # where I stop
+                
             transitions[i, :] = np.zeros(n_cells)
             for r in new_idx:
-                #transitions[:, r] = transitions[:, i]
+                transitions[:, r] = transitions[:, i] # why comment it? !!!!
                 # All sets reachable from start are reachable from both part's
                 # except possibly the new part
                 transitions[i, r] = 0
