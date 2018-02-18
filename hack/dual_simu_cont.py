@@ -191,7 +191,10 @@ def discretize_dual(
     #num_orig_neigh = np.sum(adj, axis=1).flatten() - 1
 
     progress = list()
-
+    
+    # register matrix
+    reg_mat = np.zeros([len(IJ),len(IJ)])
+    
     # Do the abstraction
     while np.sum(IJ) > 0:
         ind = np.nonzero(IJ)
@@ -250,11 +253,14 @@ def discretize_dual(
         #logger.debug('si \ s0')
         if simu_type == 'bi':
             diff = si.diff(S0)
+            vol2 = diff.volume
+            rdiff, xd = pc.cheby_ball(diff)
         elif simu_type == 'dual':
             diff = si
-        vol2 = diff.volume
-        rdiff, xd = pc.cheby_ball(diff)
-
+            real_diff = si.diff(S0)       
+            vol2 = real_diff.volume
+            rdiff, xd = pc.cheby_ball(real_diff)
+            
         # if pc.is_fulldim(pc.Region([isect]).intersect(diff)):
         #     logging.getLogger('tulip.polytope').setLevel(logging.DEBUG)
         #     diff = pc.mldivide(si, S0, save=True)
@@ -334,13 +340,16 @@ def discretize_dual(
 
             """Update transition matrix"""
             transitions = np.pad(transitions, (0,num_new), 'constant')
-
+            
             if(simu_type == 'dual'):
-                transitions[new_idx[0], :] = transitions[i, :] # where I stop
+                transitions[new_idx[0], :] = transitions[i, :]
+                if(transitions[i,i]):
+                    transitions[new_idx[0],i] = 1
+                    transitions[new_idx[0], new_idx[0]] = 1
                 
             transitions[i, :] = np.zeros(n_cells)
             for r in new_idx:
-                transitions[:, r] = transitions[:, i] # why comment it? !!!!
+                transitions[:, r] = transitions[:, i] 
                 # All sets reachable from start are reachable from both part's
                 # except possibly the new part
                 transitions[i, r] = 0
@@ -402,21 +411,39 @@ def discretize_dual(
                     transitions[k, i] = 0
 
                 for r in new_idx:
-                    if pc.is_adjacent(sol[r], sol[k]):
+                    if simu_type=='dual' or pc.is_adjacent(sol[r], sol[k]):
                         adj[r, k] = 1
                         adj[k, r] = 1
                     elif remove_trans and (trans_length == 1):
                         # Actively remove transitions between non-neighbors
                         transitions[r, k] = 0
                         transitions[k, r] = 0
-
+                        
+            """Update reg_mat matrix"""  
+            if(simu_type == 'dual'):
+                reg_mat = np.pad(reg_mat, (0,num_new), 'constant')
+                reg_mat[new_idx[0],:] = reg_mat[i,:]
+                reg_mat[:,new_idx[0]] = reg_mat[:,i]
+                reg_mat[new_idx[0],new_idx[0]] = reg_mat[i,i]
+                reg_mat[new_idx[0],i] = 0
+                reg_mat[i,new_idx[0]] = 0
+                
+                reg_mat[i,:] = 0
+                reg_mat[:,i] = 0
+                reg_mat[j,new_idx[0]] = 1
+                reg_mat[j,i] = 1
+                
+                reg_mat = ((reg_mat+transitions)>0).astype(int)
+            else:
+                reg_mat = transitions
+            
             """Update IJ matrix"""
             IJ = np.pad(IJ, (0,num_new), 'constant')
             adj_k = reachable_within(trans_length, adj, adj)
-            sym_adj_change(IJ, adj_k, transitions, i)
+            sym_adj_change(IJ, adj_k, reg_mat, i)
 
             for r in new_idx:
-                sym_adj_change(IJ, adj_k, transitions, r)
+                sym_adj_change(IJ, adj_k, reg_mat, r)
 
             if logger.getEffectiveLevel() <= logging.DEBUG:
                 msg = '\n\n Updated adj: \n' + str(adj)
@@ -437,6 +464,8 @@ def discretize_dual(
             else:
                 logger.info('\t unreachable\n')
             transitions[j,i] = 0
+            if simu_type == 'dual':
+                reg_mat[j,i] = 1
 
         # check to avoid overlapping Regions
         if debug:
@@ -456,7 +485,11 @@ def discretize_dual(
         logger.info(msg)
 
         iter_count += 1
-
+        print(progress_ratio)
+        
+        # needs to be removed later
+        if(iter_count>=100):
+            break
         # no plotting ?
         if not plotit:
             continue
@@ -503,7 +536,7 @@ def discretize_dual(
             fname += '.' + file_extension
             fig.savefig(fname, dpi=250)
         plt.pause(1)
-
+        
     new_part = PropPreservingPartition(
         domain=part.domain,
         regions=sol, adj=sp.lil_matrix(adj),
