@@ -17,6 +17,7 @@ from tulip.abstract import prop2part, discretize
 from tulip.abstract.plot import plot_partition
 from dual_simu_cont import discretize_dual
 
+
 # @import_section_end@
 
 

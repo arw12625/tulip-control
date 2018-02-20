@@ -17,6 +17,10 @@ from tulip.abstract import prop2part, discretize
 from tulip.abstract.plot import plot_partition
 from dual_simu_cont import discretize_dual
 
+from polytope import polytope as _pt
+
+_pt.solver = 'mosek'
+
 # @import_section_end@
 
 
@@ -67,7 +71,7 @@ plot_partition(cont_partition) if show else None
 # Given dynamics & proposition-preserving partition, find feasible transitions
 sys = discretize_dual(
     cont_partition, sys_dyn, closed_loop=True,
-    N=8, min_cell_volume=0.1, plotit=show, simu_type='dual'
+    trans_length=1,N=8, use_all_horizon=True, min_cell_volume=0.1, abs_tol=1e-7, plotit=show, simu_type='dual'
 )
 # @discretize_section_end@
 plot_partition(sys.ppp, sys.ts,

@@ -27,6 +27,9 @@ from tulip.abstract.discretization import reachable_within,solve_feasible,sym_ad
 from tulip.abstract.prop2partition import (PropPreservingPartition,
                              pwa_partition, part2convex)
 
+from polytope import polytope as _pt
+_pt.solvers = 'mosek'
+
 debug = False
 
 def discretize_dual(
@@ -349,7 +352,7 @@ def discretize_dual(
                 
             transitions[i, :] = np.zeros(n_cells)
             for r in new_idx:
-                transitions[:, r] = transitions[:, i] 
+                transitions[:, r] = transitions[:, i] # commented originally
                 # All sets reachable from start are reachable from both part's
                 # except possibly the new part
                 transitions[i, r] = 0
@@ -488,8 +491,8 @@ def discretize_dual(
         print(progress_ratio)
         
         # needs to be removed later
-        if(iter_count>=100):
-            break
+#        if(iter_count>=100):
+#            break
         # no plotting ?
         if not plotit:
             continue
