@@ -258,11 +258,12 @@ def discretize_dual(
             diff = si.diff(S0)
             vol2 = diff.volume
             rdiff, xd = pc.cheby_ball(diff)
+            
         elif simu_type == 'dual':
             diff = si
-            real_diff = si.diff(S0)       
-            vol2 = real_diff.volume
-            rdiff, xd = pc.cheby_ball(real_diff)
+            diff2 = si.diff(S0)       
+            vol2 = diff2.volume
+            rdiff, xd = pc.cheby_ball(diff2)
             
         # if pc.is_fulldim(pc.Region([isect]).intersect(diff)):
         #     logging.getLogger('tulip.polytope').setLevel(logging.DEBUG)
@@ -305,6 +306,7 @@ def discretize_dual(
         # Could be a problem since cheby radius is calculated for smallest
         # convex polytope, so if we have a region we might throw away a good
         # cell.
+        print(vol1,vol2)
         if (vol1 > min_cell_volume) and (risect > rd) and \
            (vol2 > min_cell_volume) and (rdiff > rd):
 
@@ -447,7 +449,8 @@ def discretize_dual(
 
             for r in new_idx:
                 sym_adj_change(IJ, adj_k, reg_mat, r)
-
+            
+            IJ = 1-reg_mat
             if logger.getEffectiveLevel() <= logging.DEBUG:
                 msg = '\n\n Updated adj: \n' + str(adj)
                 msg += '\n\n Updated trans: \n' + str(transitions)
@@ -488,11 +491,10 @@ def discretize_dual(
         logger.info(msg)
 
         iter_count += 1
-        print(progress_ratio)
         
         # needs to be removed later
-#        if(iter_count>=100):
-#            break
+        if(iter_count>=700):
+            break
         # no plotting ?
         if not plotit:
             continue

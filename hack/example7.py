@@ -69,10 +69,11 @@ plot_partition(cont_partition) if show else None
 
 # @discretize_section@
 # Given dynamics & proposition-preserving partition, find feasible transitions
-sys = discretize_dual(
-    cont_partition, sys_dyn, closed_loop=True,
-    trans_length=1,N=8, use_all_horizon=True, min_cell_volume=0.1, abs_tol=1e-7, plotit=show, simu_type='dual'
+sys = discretize(
+    cont_partition, sys_dyn, closed_loop=False,conservative=True,
+    trans_length=1000,N=1, use_all_horizon=False, min_cell_volume=0.1, abs_tol=1e-7, plotit=show
 )
 # @discretize_section_end@
-plot_partition(sys.ppp, sys.ts,
-               sys.ppp2ts) if True else None
+#plot_partition(sys.ppp, sys.ts,
+#               sys.ppp2ts) if True else None
+sys.plot(show_ts=False)
