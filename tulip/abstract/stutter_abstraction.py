@@ -61,9 +61,14 @@ from .prop2partition import PropPreservingPartition
 from .feasible import solve_feasible
 
 from tulip.abstract.discretization import AbstractPwa
+from enum import Enum
+import networkx as nx
 
 debug = False
 
+class AbstractionType(Enum):
+    STUTTER_BISIMULATION = 1
+    STUTTER_DUAL_SIMULATION = 2
 
 class StutterAbstractionSettings:
     """Settings for the stutter abstraction algorithms
@@ -101,15 +106,21 @@ class StutterAbstractionSettings:
 
           type: C{bool}
 
+      - abstraction_type: The type of abstraction to compute.
+
+          type: L{AbstractionType}
+
     """
-    def __init__(self, backwards_horizon=10, min_cell_volume=1e-3, abs_tol=1e-7,
-                 max_iter=1e4, init_data_size=1000, allow_resize=False):
+    def __init__(self, backwards_horizon=10, min_cell_volume=1e-2, abs_tol=1e-4,
+                 max_iter=1e4, init_data_size=1000, allow_resize=False,
+                 abstraction_type=AbstractionType.STUTTER_BISIMULATION):
         self.backwards_horizon = backwards_horizon
         self.min_cell_volume = min_cell_volume
         self.abs_tol = abs_tol
         self.max_iter = max_iter
         self.init_data_size = init_data_size
         self.allow_resize = allow_resize
+        self.abstraction_type = abstraction_type
 
 
 class _StutterAbstractionData:
@@ -137,15 +148,25 @@ class _StutterAbstractionData:
         self.data_size = 0
         # The current solution, consisting of abstract states which are regions of the original system
         self.sol = deepcopy(orig_ppp.regions)
+
+        if settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
+            self.isect_graph = nx.Graph()
+            self.isect_graph.add_nodes_from(range(len(self.sol)))
+            self.containment_graph = nx.DiGraph()
+            self.containment_graph.add_nodes_from(range(len(self.sol)))
+            self.has_divergent = np.empty([0])
+
         self.is_divergent = np.empty([0])
         self.transitions = np.empty([0, 0])
         self.sol2ppp = np.empty([0])
         self.index_pairs = np.empty([0, 0])
 
+
         # Set the maximum size of the partition and allocate the corresponding data structures
         self.set_data_size(settings.init_data_size)
         # Map the original partition elements to themselves in the original ppp
         self.sol2ppp[0:self.num_regions()] = np.arange(self.num_regions())
+
 
         self.progress = list()
 
@@ -186,6 +207,9 @@ class _StutterAbstractionData:
             logger.warning('Cannot decrease maximum number of partition elements')
             return
 
+        new_has_divergent = np.empty([0])
+        if self.settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
+            new_has_divergent = np.ones((data_size,), dtype=bool)
         # Whether the abstracted states are divergent or not
         new_is_divergent = np.zeros((data_size,), dtype=bool)
         # Which original partition each abstracted state is contained in
@@ -198,10 +222,15 @@ class _StutterAbstractionData:
         new_index_pairs = (np.ones([data_size, data_size], dtype=int) - np.eye(data_size, dtype=int))
 
         if self.data_size > 0:
+            if self.settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
+                new_has_divergent[0:self.data_size] = self.has_divergent
             new_is_divergent[0:self.data_size] = self.is_divergent
             new_sol2ppp[0:self.data_size] = self.sol2ppp
             new_transitions[0:self.data_size, 0:self.data_size] = self.transitions
             new_index_pairs[0:self.data_size, 0:self.data_size] = self.index_pairs
+
+        if self.settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
+            self.has_divergent = new_has_divergent
         self.is_divergent = new_is_divergent
         self.transitions = new_transitions
         self.sol2ppp = new_sol2ppp
@@ -307,7 +336,7 @@ class StutterPlotData:
 
 def compute_stutter_abstraction(orig_ppp, sys_dyn,
             stutter_settings,
-            plot_data=None, simu_type='bi'):
+            plot_data=None):
     """Perform a stutter abstraction algorithm on the given continuous system and partition
     Returns an abstracted system
 
@@ -324,25 +353,18 @@ def compute_stutter_abstraction(orig_ppp, sys_dyn,
     @param plot_data: Data for plotting the results of the algorithm
     @type plot_data: L{StutterPLotData}
 
-    @param simu_type: A string specifying the algorithm to be performed
-        Either 'bi' for stutter bisimulation or 'dual' for stutter dual simulation
-        Currently only 'bi' is implemented
-    @type simu_type: C{string}
-
     @rtype: L{AbstractPwa}
     """
 
-    if simu_type == 'bi':
+    if stutter_settings.abstraction_type == AbstractionType.STUTTER_BISIMULATION:
 
         stutter_data = _StutterAbstractionData(sys_dyn, orig_ppp, stutter_settings)
         abstract_pwa = _compute_stutter_bisim(stutter_data, plot_data)
 
-    elif simu_type == 'dual':
+    elif stutter_settings.abstraction_type == AbstractionType.STUTTER_DUAL_SIMULATION:
         raise NotImplementedError
     else:
-        raise ValueError(
-            'Unknown simulation type: "{st}"'.format(
-                st=simu_type))
+        raise ValueError('Unknown simulation type')
     return abstract_pwa
 
 
@@ -376,7 +398,7 @@ def _compute_stutter_bisim(stutter_data, plot_data):
         target_index = ind[0][0]
         init_reg = stutter_data.sol[init_index]
         target_reg = stutter_data.sol[init_index]
-        _check_pair(init_index, target_index, stutter_data)
+        _evaulate_index_pair(init_index, target_index, stutter_data)
 
         progress_ratio = stutter_data.update_progress()
         msg = '\t total # polytopes: {n_cells}\n'.format(n_cells=stutter_data.num_regions())
@@ -385,10 +407,11 @@ def _compute_stutter_bisim(stutter_data, plot_data):
         iter_count += 1
 
         if not (plot_data is None):
-            plot_data.plot_intermediate(stutter_data, init_reg, target_reg, iter_count)
+            #plot_data.plot_intermediate(stutter_data, init_reg, target_reg, iter_count)
+            pass
 
     stutter_data.trim_solution()
-
+    print(stutter_data.is_divergent)
     new_part = PropPreservingPartition(
         domain=stutter_data.orig_ppp.domain,
         regions=stutter_data.sol,
@@ -458,6 +481,7 @@ def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20):
             break
         if n == max_iter - 1:
             logger.debug("Computation of divergent subset did not converge. Consider increasing max_iter")
+
     return s
 
 def _split_divergent(index, data):
@@ -475,9 +499,9 @@ def _split_divergent(index, data):
     reg_div = _compute_divergent(region, data.sys_dyn, data.settings.min_cell_volume, data.settings.abs_tol)
 
     if reg_div.volume > data.settings.min_cell_volume:
-        div_diff = region.diff(reg_div)
-        if div_diff.volume > data.settings.min_cell_volume:
-            new_index = _split_state(index, reg_div, div_diff, data)
+        new_index, found = _find_or_split_state(index, reg_div, data)
+
+        if not found:
             data.is_divergent[index] = True
             data.is_divergent[new_index] = False
         else:
@@ -485,8 +509,90 @@ def _split_divergent(index, data):
     else:
         data.is_divergent[index] = False
 
-def _split_state(index, s1, s2, data):
+def _find_or_split_state(index, part_reg, data):
     """Split an abstracted state into two specified parts and update the corresponding data
+
+    @param index: The index of the state that is being split
+    @type index: C{int}
+
+    @param part_reg: The first part the region is split into
+    @type part_reg: L{Region}
+
+    @param data: The data structure encapsulating the current state of the algorithm
+    @type data: L{_StutterAbstractionData}
+
+    @return: the index of the resulting state and whether the state already existed
+    @rtype: (C{int},C{bool})
+    """
+    orig_reg = data.sol[index]
+
+    if pc.is_subset(orig_reg, part_reg, data.settings.abs_tol):
+        return index, True
+
+    diff_reg = orig_reg.diff(part_reg)
+    # Make sure new areas are Regions and add proposition lists
+    if not isinstance(part_reg, pc.Region):
+        part_reg = pc.Region([part_reg], orig_reg.props)
+    else:
+        part_reg.props = orig_reg.props.copy()
+
+    if not isinstance(diff_reg, pc.Region):
+        diff_reg = pc.Region([diff_reg], orig_reg.props)
+    else:
+        diff_reg.props = orig_reg.props.copy()
+
+    new_index = data.num_regions()
+    data.sol[index] = part_reg
+    data.sol.append(diff_reg)
+    data.is_divergent[new_index] = data.is_divergent[index]
+    data.sol2ppp[new_index] = data.sol2ppp[index]
+
+    data.transitions[:, new_index] = data.transitions[:, index]
+    data.transitions[index, :] = 0
+
+    data.index_pairs[index, 0:data.num_regions()] = 1
+    data.index_pairs[new_index, 0:data.num_regions()] = 1
+    data.index_pairs[0:data.num_regions(), index] = 1
+    data.index_pairs[0:data.num_regions(), new_index] = 1
+    data.index_pairs[index, index] = 0
+    data.index_pairs[new_index, new_index] = 0
+
+    return new_index, False
+
+def _add_divergent(index, data):
+    """Add the divergent subset to the abstraction and update the abstraction variables
+
+    @param index: The index of the region in the current solution to add its divergent subset
+    @type index: C{int}
+
+    @param data: The data structure encapsulating the current state of the algorithm
+    @type data: L{_StutterAbstractionData}
+
+    """
+
+    if not data.has_divergent[index]:
+        return
+    if data.is_divergent[index]:
+        return
+
+    region = data.sol[index]
+    reg_div = _compute_divergent(region, data.sys_dyn, data.settings.min_cell_volume, data.settings.abs_tol)
+
+    if reg_div.volume > data.settings.min_cell_volume:
+        if region.volume - reg_div.volume > data.settings.abs_tol:
+            new_index = _find_or_add_state(reg_div, index, data)
+            data.is_divergent[new_index] = True
+            data.has_divergent[new_index] = True
+        else:
+            data.has_divergent[index] = True
+            data.is_divergent[index] = True
+    else:
+        data.has_divergent[index] = False
+        data.is_divergent[index] = False
+
+
+def _find_or_add_state(parent_index, child_reg, data):
+    """Add a new child region that is the subset of a parent region
 
     @param index: The index of the state that is being split
     @type index: C{int}
@@ -503,35 +609,66 @@ def _split_state(index, s1, s2, data):
     @return: the index of the new state added by splitting
     @rtype: C{int}
     """
-    orig_region = data.sol[index]
+
+    parent_reg = data.sol[parent_index]
     # Make sure new areas are Regions and add proposition lists
-    if not isinstance(s1, pc.Region):
-        s1 = pc.Region([s1], orig_region.props)
+    if not isinstance(child_reg, pc.Region):
+        child_reg = pc.Region([child_reg], parent_reg.props)
     else:
-        s1.props = orig_region.props.copy()
+        child_reg.props = parent_reg.props.copy()
 
-    if not isinstance(s2, pc.Region):
-        s2 = pc.Region([s2], orig_region.props)
+    # check if child region already exists
+    region_found = False
+    region_found_index = 0
+
+    trav = nx.dfs_preorder_nodes(data.containment_graph, parent_index)
+
+    for node in trav:
+        node_reg = data.sol[node]
+        intersects = not pc.is_empty(pc.intersect(node_reg, child_reg))
+        if intersects:
+            # need to create region containment function?
+            contained_in = pc.contains(node_reg, child_reg), data.settings.abs_tol
+            contains = pc.contains(child_reg, node_reg), data.settings.abs_tol
+            if contained_in and contains:
+                region_found = True
+                region_found_index = node
+                break
+
+    return_index = 0
+    if region_found:
+        return_index = region_found_index
     else:
-        s2.props = orig_region.props.copy()
+        new_index = data.num_regions()
+        data.sol.append(child_reg)
+        data.has_divergent[new_index] = data.has_divergent[parent_index]
+        data.sol2ppp[new_index] = data.sol2ppp[parent_index]
 
-    new_index = data.num_regions()
-    data.sol[index] = s1
-    data.sol.append(s2)
-    data.is_divergent[new_index] = data.is_divergent[index]
-    data.sol2ppp[new_index] = data.sol2ppp[index]
+        data.transitions[:, new_index] = data.transitions[:, parent_index]
+        data.transitions[parent_index, :] = 0
 
-    data.transitions[:, new_index] = data.transitions[:, index]
-    data.transitions[index, :] = 0
+        data.index_pairs[parent_index, 0:data.num_regions()] = 1
+        data.index_pairs[new_index, 0:data.num_regions()] = 1
+        data.index_pairs[0:data.num_regions(), parent_index] = 1
+        data.index_pairs[0:data.num_regions(), new_index] = 1
+        data.index_pairs[parent_index, parent_index] = 0
+        data.index_pairs[new_index, new_index] = 0
 
-    data.index_pairs[index, 0:data.num_regions()] = 1
-    data.index_pairs[new_index, 0:data.num_regions()] = 1
-    data.index_pairs[0:data.num_regions(), index] = 1
-    data.index_pairs[0:data.num_regions(), new_index] = 1
-    data.index_pairs[index, index] = 0
-    data.index_pairs[new_index, new_index] = 0
+        for node in nx.neighbors(data.isect_graph, parent_index):
+            node_reg = data.sol[node]
+            intersects = not pc.is_empty(pc.intersect(node_reg, child_reg))
+            if intersects:
+                data.isect_graph.add_edge(node, new_index)
+                contained_in = pc.contains(node_reg, child_reg), data.settings.abs_tol
+                contains = pc.contains(child_reg, node_reg), data.settings.abs_tol
+                if contained_in:
+                    data.containment_graph.add_edge(node, new_index)
+                if contains:
+                    data.containment_graph.add_edge(new_index, node)
 
-    return new_index
+        return_index = new_index
+    return return_index, region_found
+
 
 def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol):
     """Compute ppre for a given initial and target region
@@ -560,7 +697,7 @@ def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol):
     else:
         return pc.Polytope()
 
-def _check_pair(init_index, target_index, data):
+def _evaulate_index_pair(init_index, target_index, data):
     """Check if the given pair splits states and update the algorithm data appropriately
 
     @param init_index: The index of the initial region
@@ -572,7 +709,7 @@ def _check_pair(init_index, target_index, data):
     @param data: The data structure encapsulating the current state of the algorithm
     @type data: L{_StutterAbstractionData}
     """
-    # i,j swapped in discretize_overlap
+
     data.index_pairs[target_index, init_index] = 0
     init_reg = data.sol[init_index]
     target_reg = data.sol[target_index]
@@ -590,58 +727,62 @@ def _check_pair(init_index, target_index, data):
         msg += '\t Computed reachable set S0 with volume: '
         msg += '{vol}\n'.format(vol=ppre_reg.volume)
         logger.debug(msg)
+        '''
+        if ppre_vol <= data.settings.min_cell_volume:
+            logger.warning('\t too small: si \cap Pre(sj), '
+                           'so discard intersection')
+        if ppre_vol <= data.settings.min_cell_volume and ppre_reg:
+            logger.warning('\t discarded non-empty intersection: '
+                           'consider reducing min_cell_volume')
+        if diff_vol <= data.settings.min_cell_volume:
+            logger.warning('\t too small: si \ Pre(sj), so not reached it')
+        # We don't want our partitions to be smaller than the disturbance set
+        # Could be a problem since cheby radius is calculated for smallest
+        # convex polytope, so if we have a region we might throw away a good
+        # cell.
+        '''
+        pass
 
-    ppre_vol = ppre_reg.volume
-    diff_reg = init_reg.diff(ppre_reg)
-    diff_vol = diff_reg.volume
-
-    if ppre_vol <= data.settings.min_cell_volume:
-        logger.warning('\t too small: si \cap Pre(sj), '
-                       'so discard intersection')
-    if ppre_vol <= data.settings.min_cell_volume and ppre_reg:
-        logger.warning('\t discarded non-empty intersection: '
-                       'consider reducing min_cell_volume')
-    if diff_vol <= data.settings.min_cell_volume:
-        logger.warning('\t too small: si \ Pre(sj), so not reached it')
-    # We don't want our partitions to be smaller than the disturbance set
-    # Could be a problem since cheby radius is calculated for smallest
-    # convex polytope, so if we have a region we might throw away a good
-    # cell.
-    if (ppre_vol > data.settings.min_cell_volume) and (diff_vol > data.settings.min_cell_volume):
-
-        diff_ind = _split_state(init_index, ppre_reg, diff_reg, data)
-
-        data.transitions[target_index, init_index] = 1
-
-        msg = ''
-        if logger.getEffectiveLevel() <= logging.DEBUG:
-            msg += '\t\n Adding states {i} and {j}'.format(i=init_index, j=diff_ind)
-            msg += '\n'
-            logger.debug(msg)
-
-        if data.is_divergent[init_index]:
-            _split_divergent(init_index, data)
-            _split_divergent(diff_ind, data)
-
-        if logger.getEffectiveLevel() <= logging.DEBUG:
-            msg = ''
-            msg += '\n\n Updated trans: \n{trans}'.format(trans=
-                                                          data.transitions)
-            msg += '\n\n Updated index_pairs: \n{index_pairs}'.format(index_pairs=data.index_pairs)
-            logger.debug(msg)
-        logger.info('Divided region: {i}\n'.format(i=init_index))
-    elif diff_vol < data.settings.abs_tol:
-        logger.info('Found: {i} ---> {j}\n'.format(i=init_index, j=target_index))
-        data.transitions[target_index, init_index] = 1
-    else:
+    if ppre_reg.volume < data.settings.min_cell_volume:
         if logger.level <= logging.DEBUG:
             msg = '\t Unreachable: {i} --X--> {j}\n'.format(i=init_index, j=target_index)
-            msg += '\t\t diff vol: {vol_diff}\n'.format(vol_diff=diff_vol)
-            msg += '\t\t intersect vol: {vol_S0}\n'.format(vol_S0=ppre_vol)
+            msg += '\t\t intersect vol: {vol_S0}\n'.format(vol_S0=ppre_reg.volume)
             logger.debug(msg)
         else:
             logger.info('\t unreachable\n')
+        # This transition should already be absent, but this line is kept for emphasis
         data.transitions[target_index, init_index] = 0
+    else:
+        new_state_func = None
+        divergent_state_func = None
+        if data.settings.abstraction_type is AbstractionType.STUTTER_BISIMULATION:
+            new_state_func = _find_or_split_state
+            divergent_state_func = _split_divergent
+        elif data.settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
+            new_state_func = _find_or_add_state
+            divergent_state_func = _add_divergent
+        reg_index, found = new_state_func(init_index, ppre_reg, data)
+        if found:
+            logger.info('Found: {i} ---> {j}\n'.format(i=init_index, j=target_index))
+            data.transitions[target_index, init_index] = 1
+        else:
+            data.transitions[target_index, init_index] = 1
+            if data.is_divergent[init_index]:
+                divergent_state_func(init_index, data)
+                divergent_state_func(reg_index, data)
+
+            msg = ''
+            if logger.getEffectiveLevel() <= logging.DEBUG:
+                msg += '\t\n Adding states {i} and {j}'.format(i=init_index, j=reg_index)
+                msg += '\n'
+                logger.debug(msg)
+            if logger.getEffectiveLevel() <= logging.DEBUG:
+                msg = ''
+                msg += '\n\n Updated trans: \n{trans}'.format(trans=
+                                                              data.transitions)
+                msg += '\n\n Updated index_pairs: \n{index_pairs}'.format(index_pairs=data.index_pairs)
+                logger.debug(msg)
+            logger.info('Divided region: {i}\n'.format(i=init_index))
 
 def _build_stutter_abstr_FTS(new_part, data):
     """Build a finite transition system from the abstracted partition

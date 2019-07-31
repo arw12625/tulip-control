@@ -15,7 +15,7 @@ import polytope as pc
 from tulip.abstract import prop2part, PropPreservingPartition
 from tulip.abstract.plot import plot_partition
 
-from tulip.abstract.stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData
+from tulip.abstract.stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData, AbstractionType
 # @import_section_end@
 
 
@@ -87,11 +87,11 @@ plot_partition(cont_partition) if show else None
 # @abstraction_section@
 # Given dynamics & proposition-preserving partition, compute stutter bisimulation
 
-stutter_settings = StutterAbstractionSettings(backwards_horizon=6)
-plot_data = StutterPlotData(save_img=False,plot_every=100)
+stutter_settings = StutterAbstractionSettings(backwards_horizon=8)
+plot_data = StutterPlotData(save_img=False, plot_every=100)
 
 stutter_dynamics = compute_stutter_abstraction(
-        cont_partition, sys_dyn, stutter_settings, plot_data, simu_type='bi'
+        cont_partition, sys_dyn, stutter_settings, plot_data
 )
 
 
