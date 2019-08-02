@@ -87,7 +87,7 @@ plot_partition(cont_partition) if show else None
 # @abstraction_section@
 # Given dynamics & proposition-preserving partition, compute stutter bisimulation
 
-stutter_settings = StutterAbstractionSettings(backwards_horizon=8)
+stutter_settings = StutterAbstractionSettings(backwards_horizon=5, abstraction_type=AbstractionType.STUTTER_DUAL_SIMULATION)
 plot_data = StutterPlotData(save_img=False, plot_every=100)
 
 stutter_dynamics = compute_stutter_abstraction(
