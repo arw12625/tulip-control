@@ -57,8 +57,11 @@ cont_state_space = box2poly([[-1, 1], [-1, 1]])
 
 # Continuous dynamics
 # (continuous-state, discrete-time)
-A = np.array([[0.5, 1], [0.75, -1]])
-B = np.array([[1, 0], [0, 1]])
+A = np.array([[0.5, 1], [1, -1]])
+A = 2 * np.random.rand(2, 2)
+theta = np.pi / 8
+A = np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
+B = 0.2 * np.array([[1, 0], [0, 1]])
 E = np.array([[0], [0]])
 
 U = box2poly(np.array([[-1., 1.], [-1, 1]]))
@@ -87,19 +90,24 @@ plot_partition(cont_partition) if show else None
 # @abstraction_section@
 # Given dynamics & proposition-preserving partition, compute stutter bisimulation
 
-stutter_settings = StutterAbstractionSettings(backwards_horizon=5, abstraction_type=AbstractionType.STUTTER_BISIMULATION)
-plot_data = StutterPlotData(save_img=False, plot_every=100)
+stutter_settings = StutterAbstractionSettings(
+    backwards_horizon=10, abstraction_type=AbstractionType.STUTTER_BISIMULATION,
+    min_cell_volume=0.01)
+plot_data = StutterPlotData(save_img=False, plot_every=15)
 
+print(A)
 stutter_dynamics = compute_stutter_abstraction(
         cont_partition, sys_dyn, stutter_settings, plot_data
 )
-
+print(A)
 
 print(stutter_dynamics)
+print(A)
+
 # @abstraction_section@
 
 # Visualize transitions in continuous domain (optional)
 
 plot_partition(stutter_dynamics.ppp, stutter_dynamics.ts,
                stutter_dynamics.ppp2ts) if show else None
-
+print(A)

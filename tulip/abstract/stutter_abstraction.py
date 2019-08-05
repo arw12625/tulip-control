@@ -31,10 +31,10 @@
 # POSSIBILITY OF SUCH DAMAGE.
 #
 """
-Algorithms related to stutter abstractions of continuous dynamics.
+Stutter Abstraction Module
 
-See Also
-========
+Contains implementations of the divergent stutter bisimulation quotient and stutter dual simulation algorithms
+for discrete time continuous state linear systems.
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -43,8 +43,6 @@ from __future__ import print_function
 import logging
 
 import scipy.sparse as sp
-
-logger = logging.getLogger(__name__)
 
 import os
 from copy import deepcopy
@@ -66,6 +64,8 @@ import networkx as nx
 
 debug = False
 
+logger = logging.getLogger(__name__)
+
 
 class AbstractionType(Enum):
     STUTTER_BISIMULATION = 1
@@ -73,51 +73,44 @@ class AbstractionType(Enum):
 
 
 class StutterAbstractionSettings:
-    """Settings for the stutter abstraction algorithms
+    """
+    Settings for the stutter abstraction algorithms
 
-      - backwards_horizon: The maximum length of a stutter path considered
-          Nominally, the algorithm splits sets by computation of the
-          infinite backwards horizon PPre, but in this implementation
-          the horizon is restricted to a finite number of steps specified
-          by this attribute
+    @ivar backwards_horizon: The maximum length of a stutter path considered
+    Nominally, the algorithm splits sets by computation of the
+    infinite backwards horizon PPre, but in this implementation
+    the horizon is restricted to a finite number of steps specified
+    by this attribute
+    @type: C{int}
 
-          type: C{int}
+    @ivar min_cell_volume: The minimum volume of a region identified by the algorithm
+    Abstracted state sets encountered by the algorithm with a smaller
+    volume are considered to be empty and ignored
+    @type min_cell_volume: C{float}
 
-      - min_cell_volume: The minimum volume of a region identified by the algorithm
-          Abstracted state sets encountered by the algorithm with a smaller
-          volume are considered to be empty and ignored
+    @ivar abs_tol: The tolerance in volume for two regions to be considered the same
+    A subset 's1' of set 's2' is identified to be the same as 's2' if the
+    difference in volume of the two is less than C{abs_tol}
+    @type abs_tol: C{float}
 
-          type: C{float}
+    @ivar max_iter: The maximum number of iterations before prematurely terminating
+    @type max_iter: C{int}
 
-      - abs_tol: The tolerance in volume for two regions to be considered the same
-          A subset 's1' of set 's2' is identified to be the same as 's2' if the
-          difference in volume of the two is less than abs_tol
+    @ivar init_data_size: The number of abstracted states to allocate data for initially
+    @type init_data_size: C{int}
 
-          type: C{float}
+    @ivar allow_resize: Whether or not to allow the data to be reallocated dynamically
+    Currently unimplemented
+    @type allow_resize: C{bool}
 
-      - max_iter: The maximum number of iterations before prematurely terminating
+    @ivar abstraction_type: The type of abstraction to compute.
+    @type abstraction_type: L{AbstractionType}
 
-          type: C{int}
-
-      - init_data_size: The expected number of abstracted states to allocate data for initially
-
-          type: C{int}
-
-      - allow_resize: Whether or not to allow the data to be reallocated dynamically
-            Currently unimplemented
-
-          type: C{bool}
-
-      - abstraction_type: The type of abstraction to compute.
-
-          type: L{AbstractionType}
-
-      - should_consider_divergent: Whether the algorithm should split/add the divergent subsets
-            If should_consider_divergent, then the algorithm splits/adds the divergent subsets
-            and does not evaluate self-transitions. Otherwise the algorithm does not treat divergent
-            sets as special, and instead considers self-transitions
-
-          type: C{bool}
+    @ivar should_consider_divergent: Whether the algorithm should split/add the divergent subsets
+    If should_consider_divergent, then the algorithm splits/adds the divergent subsets
+    and does not evaluate self-transitions. Otherwise the algorithm does not treat divergent
+    sets as special, and instead considers self-transitions
+    @type should_consider_divergent: C{bool}
     """
     def __init__(self, backwards_horizon=10, min_cell_volume=1e-2, abs_tol=1e-4,
                  max_iter=1e4, init_data_size=1000, allow_resize=False,
@@ -134,50 +127,45 @@ class StutterAbstractionSettings:
 
 
 class _StutterAbstractionData:
-    """Helper superclass for running the stutter abstraction algorithms. See _StutterBiData} and _StutterDualData below
+    """Internal helper abstract class for running the stutter abstraction algorithms.
+    See L{_StutterBiData} and L{_StutterDualData} below
 
-      - sys_dyn: The dynamics of the system the abstraction is being computed for
-            Currently only linear systems are supported.
+    @ivar sys_dyn: The dynamics of the system the abstraction is being computed for
+    Currently only linear systems are supported.
+    @type sys_dyn: C{LtiSysDyn}
 
-          type: C{LtiSysDyn}
+    @ivar orig_ppp: The propositcxion preserving partition of the original system
+    @type orig_ppp: C{PropPreservingPartition}
 
-      - orig_ppp: The propositcxion preserving partition of the original system
-          type: C{PropPreservingPartition}
+    @ivar: The settings to be use by the abstraction algorithm
+    @type settings: C{StutterAbstractionSettings}
 
-      - settings: The settings to be use by the abstraction algorithm
+    @ivar data_size: The number of states that data for abstraction is allocated for
+    Currently only set in initialization, but in the future data should be
+    able to be reallocated. See L{set_data_size}
+    @type data_size: C{int}
 
-          type: C{StutterAbstractionSettings}
+    @ivar sol: The current solution as a list of regions
+    @type: list of L{Region}
 
-      - data_size: The number of states that data for abstraction is allocated for
-            Currently only set in initialization, but in the future data should be
-            able to be reallocated. See L{set_data_size}
+    @ivar is_divergent: An array corresponding to whether or not the corresponding
+    region is divergent or not
+    @type is_divergent : L{ndarray}
 
-          type: C{int}
+    @ivar transitions: A matrix representing the transitions computed in the solution
+    transitions[i,j] is equal to False if the pair has not been evaluated yet or there
+    is no transition from j to i. It is equal to True otherwise.
+    @type transitions: L{ndarray}
 
-      - sol: The current solution as a list of regions
+    @ivar sol2ppp: An array mapping a solution index to the orig_ppp region index that contains it
+    @type sol2ppp: L{ndarray}
 
-          type: list of L{Region}
-
-      - is_divergent: An array corresponding to whether or not the corresponding
-            region is divergent or not
-
-          type: L{ndarray}
-
-      - transitions: A matrix representing the transitions computed in the solution
-            transitions[i,j] is equal to False if the pair has not been evaluated yet or there
-            is no transition from j to i. It is equal to True otherwise.
-
-          type: L{ndarray}
-
-      - sol2ppp: An array mapping a solution index to the orig_ppp region index that contains it
-
-          type: L{ndarray}
-
-      - index_pairs: A matrix representing which pairs of indices have been evaluated.
-            index_pairs[i,j] is equal to False if the transition from j to i has been evaluated
-
-          type: L{ndarray}
+    @ivar index_pairs: A matrix representing which pairs of indices have been evaluated.
+    index_pairs[i,j] is equal to False if the transition from j to i has been evaluated
+    @type index_pairs: L{ndarray}
     """
+    # Should this documentation not be in a docstring as it is a private class?
+
     def __init__(self, sys_dyn, orig_ppp, settings):
 
         self.settings = settings
@@ -193,12 +181,10 @@ class _StutterAbstractionData:
         self.sol2ppp = np.empty([0])
         self.index_pairs = np.empty([0, 0])
 
-
         # Set the maximum size of the partition and allocate the corresponding data structures
         self.set_data_size(settings.init_data_size)
         # Map the original partition elements to themselves in the original ppp
         self.sol2ppp[0:self.num_regions()] = np.arange(self.num_regions())
-
 
         self.progress = list()
 
@@ -230,30 +216,30 @@ class _StutterAbstractionData:
         """An abstract method for producing a partition of the system's domain from the solution
 
         @return: the partition produced
-        @:rtype: L{PropPreservingPartition}
+        @rtype: L{PropPreservingPartition}
         """
         raise NotImplementedError
 
     def num_regions(self):
-        """Return the number of regions in the current solution
+        """Access the number of regions in the current solution
 
+        @return: the number of regions
         @rtype: C{int}
-
         """
         return len(self.sol)
 
     def is_terminated(self):
-        """Return whether or not the algorithm has terminated by exhausting all pairs
+        """Determine whether or not the algorithm has terminated by exhausting all pairs
 
+        @return: the termination status
         @rtype: C{bool}
-
         """
         return np.sum(self.index_pairs[0:self.num_regions(), 0:self.num_regions()]) == 0
 
     def update_progress(self):
         """Update the progress variables of the algorithm
-        Returns the current progress ratio
 
+        @return: the current progress ratio
         @rtype: C{float}
         """
         progress_ratio = 1 - float(np.sum(self.index_pairs[0:self.num_regions(), 0:self.num_regions()])) / self.num_regions() ** 2
@@ -270,27 +256,24 @@ class _StutterAbstractionData:
             logger.warning('Cannot decrease maximum number of partition elements')
             return False
 
-        # Whether the abstracted states are divergent or not
+        # allocate new data
         new_is_divergent = np.zeros((data_size,), dtype=bool)
-        # Which original partition each abstracted state is contained in
         new_sol2ppp = np.zeros((data_size,), dtype=int)
-        # Initialize output transitions
-        # transitions[i,j] == 1 represents a transition from state j to state i
-        # this is the transpose of the standard directed adjacency matrix of the graph corresponding to the system
         new_transitions = np.zeros([data_size, data_size], dtype=int)
-        # Initialize matrix for pairs to check
         new_index_pairs = None
         if self.settings.should_consider_divergent:
             new_index_pairs = (np.ones([data_size, data_size], dtype=int) - np.eye(data_size, dtype=int))
         else:
             new_index_pairs = (np.ones([data_size, data_size], dtype=int))
 
+        # copy old data if it exists
         if self.data_size > 0:
             new_is_divergent[0:self.data_size] = self.is_divergent
             new_sol2ppp[0:self.data_size] = self.sol2ppp
             new_transitions[0:self.data_size, 0:self.data_size] = self.transitions
             new_index_pairs[0:self.data_size, 0:self.data_size] = self.index_pairs
 
+        # use the new data
         self.is_divergent = new_is_divergent
         self.transitions = new_transitions
         self.sol2ppp = new_sol2ppp
@@ -300,15 +283,13 @@ class _StutterAbstractionData:
         return True
 
     def trim_solution(self):
-        """Trim the allocated data to only what is needed for the current solution
-
-        """
+        """Trim the allocated data to only what is needed for the current solution"""
         self.transitions = self.transitions[0:self.num_regions(), 0:self.num_regions()]
         self.is_divergent = self.is_divergent[0:self.num_regions()]
         self.sol2ppp = self.sol2ppp[0:self.num_regions()]
         self.data_size = self.num_regions()
 
-    def evaulate_index_pair(self, init_index, target_index):
+    def evaluate_index_pair(self, init_index, target_index):
         """Check if the given pair splits states and update the algorithm data appropriately
 
         @param init_index: The index of the initial region
@@ -319,10 +300,12 @@ class _StutterAbstractionData:
 
         """
 
+        # remove this pair from the pairs to be checked
         self.index_pairs[target_index, init_index] = 0
         init_reg = self.sol[init_index]
         target_reg = self.sol[target_index]
 
+        # compute the subset of init_reg that can reach target_reg by an appropriate stutter path
         ppre_reg = _compute_ppre(init_reg, target_reg, self.sys_dyn, self.settings.backwards_horizon,
                                  self.settings.min_cell_volume)
 
@@ -354,6 +337,7 @@ class _StutterAbstractionData:
             pass
 
         if ppre_reg.volume < self.settings.min_cell_volume:
+            # If the subset is too small then no transition is added and nothing is done
             if logger.level <= logging.DEBUG:
                 msg = '\t Unreachable: {i} --X--> {j}\n'.format(i=init_index, j=target_index)
                 msg += '\t\t intersect vol: {vol_S0}\n'.format(vol_S0=ppre_reg.volume)
@@ -363,11 +347,16 @@ class _StutterAbstractionData:
             # This transition should already be absent, but this line is kept for emphasis
             self.transitions[target_index, init_index] = 0
         else:
+            # For large enough subsets, we consider its addition as a state.
             reg_index, found = self.consider_state(init_index, ppre_reg)
             if found:
+                # If the set is already present, then only a transition is added to the found state
                 logger.info('Found: {i} ---> {j}\n'.format(i=init_index, j=target_index))
                 self.transitions[target_index, init_index] = 1
             else:
+                # If the set was not present in the solution, the transition is to the new state
+                # Additionally, we consider the divergent subset of the new set and
+                # reevaluate the old slot
                 self.transitions[target_index, init_index] = 1
                 if self.settings.should_consider_divergent and self.is_divergent[init_index]:
                     self.consider_divergent(init_index)
@@ -385,35 +374,37 @@ class _StutterAbstractionData:
                     logger.debug(msg)
                 logger.info('Divided region: {i}\n'.format(i=init_index))
 
-    def build_stutter_abstr_FTS(data):
+    def build_stutter_abstr_FTS(self):
         """Build a finite transition system from the solution produced by the algorithm
 
         @return: The finite transition system for the abstraction and the corresponding ppp
         @rtype: (L{FTS}, L{PropPreservingPartition})
         """
 
-        new_part = data.partition_solution()
+        # Create a partition for the FTS from the solution computed by the algorithm
+        new_part = self.partition_solution()
 
         # check completeness of adjacency matrix
         if debug:
             tmp_part = deepcopy(new_part)
             tmp_part.compute_adj()
 
+        # add self loops to the divergent regions
         for index in range(len(new_part)):
-            if data.is_divergent[index]:
-                data.transitions[index, index] = 1
+            if self.is_divergent[index]:
+                self.transitions[index, index] = 1
 
         # Generate transition system and add transitions
         ofts = trs.FTS()
-        adj = sp.lil_matrix(data.transitions.T)
+        adj = sp.lil_matrix(self.transitions.T)
         n = adj.shape[0]
         ofts_states = range(n)
         ofts.states.add_from(ofts_states)
         ofts.transitions.add_adj(adj, ofts_states)
         # Decorate TS with state labels
-        atomic_propositions = set(data.orig_ppp.prop_regions)
+        atomic_propositions = set(self.orig_ppp.prop_regions)
         ofts.atomic_propositions.add_from(atomic_propositions)
-        for state, region in zip(ofts_states, data.sol):
+        for state, region in zip(ofts_states, self.sol):
             state_prop = region.props.copy()
             ofts.states.add(state, ap=state_prop)
 
@@ -426,6 +417,7 @@ class _StutterAbstractionData:
         @param plot_data: Data for plotting the results of the algorithm
         @type plot_data: L{StutterPLotData}
 
+        @return: The abstraction of the original system as an FTS
         @rtype: L{AbstractPwa}
         """
         if isinstance(self.sys_dyn, PwaSysDyn):
@@ -433,6 +425,7 @@ class _StutterAbstractionData:
 
         start_time = os.times()[0]
 
+        # Handle the divergent subsets of the initial partition elements if necessary
         if self.settings.should_consider_divergent:
             # Compute divergent subsets of original partition elements
             for index in range(self.num_regions()):
@@ -443,7 +436,7 @@ class _StutterAbstractionData:
         # Do the abstraction
         while not self.is_terminated() and iter_count < self.settings.max_iter:
             msg = ''
-            msg += "\t Number of regions: {nreg}\n".format(reg=self.num_regions())
+            msg += "\t Number of regions: {nreg}\n".format(nreg=self.num_regions())
             msg += "\t Remaining pairs to check: {nrem}\n".format(nrem= \
                   np.sum(self.index_pairs[0:self.num_regions(), 0:self.num_regions()]))
             logger.info(msg)
@@ -453,7 +446,7 @@ class _StutterAbstractionData:
 
             init_reg = deepcopy(self.sol[init_index])
             target_reg = deepcopy(self.sol[init_index])
-            self.evaulate_index_pair(init_index, target_index)
+            self.evaluate_index_pair(init_index, target_index)
 
             progress_ratio = self.update_progress()
             msg = '\t total # polytopes: {n_cells}\n'.format(n_cells=self.num_regions())
@@ -462,7 +455,7 @@ class _StutterAbstractionData:
             iter_count += 1
 
             if not (plot_data is None):
-                # plot_data.plot_intermediate(stutter_data, init_reg, target_reg, iter_count)
+                plot_data.plot_intermediate(self, init_reg, target_reg, iter_count)
                 pass
 
         self.trim_solution()
@@ -497,9 +490,13 @@ class _StutterAbstractionData:
 
 
 class _StutterBiData(_StutterAbstractionData):
+    """Helper class extension for the bisimulation algorithm
+
+    """
 
     def consider_divergent(self, index):
-        """The stutter bisimulation algorithm processes divergent regions by splitting the parent region in two
+        """The stutter bisimulation algorithm processes divergent regions by splitting the parent region
+        in two: the divergent part and its complement
         """
 
         region = self.sol[index]
@@ -518,40 +515,48 @@ class _StutterBiData(_StutterAbstractionData):
 
     def consider_state(self, index, part_reg):
         """The stutter bisimulation algorithm processes new regions by splitting the parent region in two
+
+        @param index: The index in the solution of the parent region to split
+        @type index: C{int}
+        @param part_reg: One part/subregion of the parent to split, the other part is given by its complement
+        @type part_reg: L{Region}
+
+        @return: The index of the new region if it was not found in the solution and whether it was found
+        Note by the nature of splitting sets in the bisimulation algorithm, the new region can be found
+        in the solution if and only if it is equal to the parent region.
+        @rtype: C{int}, C{bool}
         """
         orig_reg = self.sol[index]
 
+        # Check if the child region is equal to the parent region by testing
+        # if the parent region is a subset of the child region withing tolerance
         if pc.is_subset(orig_reg, part_reg, self.settings.abs_tol):
             return index, True
 
+        # If the regions are not equal, we proceed by splitting the parent region
         diff_reg = orig_reg.diff(part_reg)
-        '''
-        '# Make sure new areas are Regions and add proposition lists
-        if not isinstance(part_reg, pc.Region):
-            part_reg = pc.Region([part_reg], orig_reg.props)
-        else:
-            part_reg.props = orig_reg.props.copy()
-
-        if not isinstance(diff_reg, pc.Region):
-            diff_reg = pc.Region([diff_reg], orig_reg.props)
-        else:
-            diff_reg.props = orig_reg.props.copy()
-        '''
+        # Fix the result so that it is a region with the correct proposition labeling
         diff_reg = _fix_region(diff_reg, orig_reg)
 
+        # The new region is appended to the end of the solution
         new_index = self.num_regions()
+        # Replace the parent with the child and append the difference
         self.sol[index] = part_reg
         self.sol.append(diff_reg)
+
+        # Copy the parent's information to the new region
         self.is_divergent[new_index] = self.is_divergent[index]
         self.sol2ppp[new_index] = self.sol2ppp[index]
 
         self.transitions[:, new_index] = self.transitions[:, index]
         self.transitions[index, :] = 0
 
+        # All pairs involving the added child region and new difference region must be evaluated
         self.index_pairs[index, 0:self.num_regions()] = 1
         self.index_pairs[new_index, 0:self.num_regions()] = 1
         self.index_pairs[0:self.num_regions(), index] = 1
         self.index_pairs[0:self.num_regions(), new_index] = 1
+        # Ignore self transition pairs if divergent sets are computed instead
         if self.settings.should_consider_divergent:
             self.index_pairs[index, index] = 0
             self.index_pairs[new_index, new_index] = 0
@@ -559,7 +564,12 @@ class _StutterBiData(_StutterAbstractionData):
         return new_index, False
 
     def partition_solution(self):
-        """By the nature of the bisimulation algorithm splitting regions, the final solution is a partition
+        """ Return the partition corresponding to the solution computed
+        By the nature of the bisimulation algorithm splitting regions,
+        this partition is exactly the solution without modification.
+
+        @return: The partition
+        @rtype: PropPreservingPartition
         """
         new_part = PropPreservingPartition(
             domain=self.orig_ppp.domain,
@@ -570,6 +580,27 @@ class _StutterBiData(_StutterAbstractionData):
 
 
 class _StutterDualData(_StutterAbstractionData):
+    """Helper class for the stutter dual simulation class
+
+    @ivar isect_graph: An undirected graph representing which regions in the solution intersect
+    Nodes of this graph are regions in the solution, and edges represent non-empty intersection (with tolerance)
+    @type isect_graph: L{Graph}
+
+    @ivar containment_graph: A directed graph representing which regions of the solution are contained in each other
+    Nodes of thie graph are regions in the solution, and a directed edge from region A to region B represents
+    A containing B
+    @type containment_graph: L{DiGraph}
+
+    @ivar has_divergent: Whether or not the a region in the solution possibly contains divergent states
+    @type has_divergent: L{ndarray}
+
+    @note The dual algorithm can be optimized by removing unnecessary init/target pair computations and
+    unnecessary equality checks for testing if a region is already in the solution.
+    For instance a parent region cannot reach a target region if any of its children regions cannot
+    Keeping/computing additional information during the algorithm to reduce comparisons could greatly
+    improve the speed.
+
+    """
 
     def __init__(self, sys_dyn, orig_ppp, settings):
 
@@ -578,7 +609,6 @@ class _StutterDualData(_StutterAbstractionData):
         self.containment_graph = nx.DiGraph()
         self.containment_graph.add_nodes_from(range(len(orig_ppp.regions)))
         self.has_divergent = np.empty([0])
-        self.can_transition = np.empty([0, 0])
 
         super(_StutterDualData, self).__init__(sys_dyn, orig_ppp, settings)
 
@@ -598,7 +628,7 @@ class _StutterDualData(_StutterAbstractionData):
         return True
 
     def consider_divergent(self, index):
-        """The dual algorithm processes divergent regions by adding them to the solution
+        """The dual algorithm processes divergent regions by adding the divergent subset to the solution
         """
 
         if not self.has_divergent[index]:
@@ -622,20 +652,33 @@ class _StutterDualData(_StutterAbstractionData):
             self.is_divergent[index] = False
 
     def consider_state(self, parent_index, child_reg):
-        """The dual algorithm processes new regions by adding them to the solution
+        """The stutter dual simulation algorithm processes new regions by adding them to the solution
+
+        @param parent_index: The index in the solution of the parent region
+        @type parent_index: C{int}
+        @param child_reg: One part/subregion of the parent to add
+        @type child_reg: L{Region}
+
+        @return: The index of the new region if it was not found in the solution and whether it was found
+        @rtype: C{int}, C{bool}
         """
 
         # check if child region already exists
         region_found = False
         region_found_index = 0
 
+        # If the child region is already present in the solution,
+        # then it must be contained in the parent region.
+        # Equivalently, this means there is a path from the parent to a
+        # region that is equal to the child in the containment graph
+        # This line defines a depth first traversal of the nodes reachable from the parent
         trav = nx.dfs_preorder_nodes(self.containment_graph, parent_index)
 
         for node in trav:
             node_reg = self.sol[node]
             intersects = not pc.is_empty(pc.intersect(node_reg, child_reg))
             if intersects:
-                # need to create region containment function?
+                # Note containment is only possible if the regions intersect
                 contained_in = pc.is_subset(child_reg, node_reg, self.settings.abs_tol)
                 contains = pc.is_subset(node_reg, child_reg, self.settings.abs_tol)
                 if contained_in and contains:
@@ -647,6 +690,7 @@ class _StutterDualData(_StutterAbstractionData):
         if region_found:
             return_index = region_found_index
         else:
+            # if the region is not found, it must be added to all of the data structures
             new_index = self.num_regions()
             self.sol.append(child_reg)
             self.containment_graph.add_node(new_index)
@@ -655,16 +699,17 @@ class _StutterDualData(_StutterAbstractionData):
             self.isect_graph.add_edge(parent_index, new_index)
             self.has_divergent[new_index] = self.has_divergent[parent_index]
             self.sol2ppp[new_index] = self.sol2ppp[parent_index]
-
+            # If a parent can transition to a region, then so can the child
+            # However in general the converse does not hold
             self.transitions[:, new_index] = self.transitions[:, parent_index]
             self.transitions[parent_index, :] = 0
 
-            # There is a problem in the logic somewhere here
             self.index_pairs[new_index, 0:self.num_regions()] = 1
             self.index_pairs[0:self.num_regions(), new_index] = 1
             if self.settings.should_consider_divergent:
                 self.index_pairs[new_index, new_index] = 0
 
+            # update the intersection and containment graphs with the new region
             for node in nx.neighbors(self.isect_graph, parent_index):
                 if node == new_index:
                     continue
@@ -685,8 +730,16 @@ class _StutterDualData(_StutterAbstractionData):
     def partition_solution(self):
         """The dual algorithm solution can be transformed into a representative partition
         by considering all possible intersections of regions and only using the 'atoms'
+
+        @return The partition corresponding to the solution
+        @rtype L{PropPreservingPartition}
         """
-        # perform reduction and form partition from set hierarchy
+
+        # The partition is formed by considering all possible intersections of the regions and their complements
+        # This set is then reduced by only taking elements with no proper subset in the expanded solution
+        # Equivalently, we can take each region and subtract all of the region's children
+        # If what remains is nonempty (within tolerance), then we keep this region
+        # This may not be an efficient way to accomplish this
         to_remove = []
         for index, region in enumerate(self.sol):
             for child in self.containment_graph.successors(index):
@@ -702,14 +755,14 @@ class _StutterDualData(_StutterAbstractionData):
         # define map from current solution to reduced solution
         to_keep = [region_index for region_index in range(len(self.sol)) if region_index not in to_remove]
         # region_lookup = {region_index: index for (index, region_index) in enumerate(to_keep)}
-        # apply reduction map to solution
+        # self.transitions = np.vectorize(region_lookup.get)(self.transitions)
+
+        # Update data by trimming unused states
         self.sol = [self.sol[index] for index in to_keep]
         self.is_divergent = np.delete(self.is_divergent, to_remove, axis=0)
         self.sol2ppp = np.delete(self.sol2ppp, to_remove, axis=0)
         self.transitions = np.delete(self.transitions, to_remove, axis=0)
         self.transitions = np.delete(self.transitions, to_remove, axis=1)
-
-        # self.transitions = np.vectorize(region_lookup.get)(self.transitions)
 
         new_part = PropPreservingPartition(
             domain=self.orig_ppp.domain,
@@ -720,21 +773,22 @@ class _StutterDualData(_StutterAbstractionData):
 
 
 class StutterPlotData:
+    """A class encapsulating data and behavior for plotting the algorithm's results
+        
+    @ivar save_img: Whether or not to save images
+    @type: C{bool}
+        
+    @ivar plot_every: How often to plot intermediate results of the algorithm
+    @type: C{int}
+
+    @cvar file_extension: The file extension to be used for saving images
+    @type file_extension: C{string}
+    """
 
     file_extension = 'pdf'
 
-    """A class encapsulating data and behavior for plotting the algorithm's results
-        
-      - save_img: Whether or not to save images
-      
-        type: C{bool}
-        
-      - plot_every: How often to plot intermediate results of the algorithm
-      
-        type: C{int}
-    """
-    def __init__(self, save_img=False, plot_every=1):
-        #plt.ion()
+    def __init__(self, save_img=False, plot_every=0):
+        plt.ion()
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2)
         self.ax1.axis('scaled')
         self.ax2.axis('scaled')
@@ -756,7 +810,7 @@ class StutterPlotData:
         @param iter_count: The current iteration number
         @type iter_count: C{int}
         """
-        if iter_count % self.plot_every != 0:
+        if self.plot_every == 0 or iter_count % self.plot_every != 0:
             return
         init_reg = deepcopy(init_reg_o)
         target_reg = deepcopy(target_reg_o)
@@ -807,6 +861,10 @@ class StutterPlotData:
 
 
 def _fix_region(child_reg, parent_reg):
+    """ Fix the child region by ensuring that it is a proper region,
+    and forming a region from it if it is a polytope.
+    Additionally set the child's labeling to match the parent's
+    """
     # Make sure new areas are Regions and add proposition lists
     if not isinstance(child_reg, pc.Region):
         child_reg = pc.Region([child_reg], parent_reg.props)
@@ -832,6 +890,7 @@ def compute_stutter_abstraction(orig_ppp, sys_dyn,stutter_settings,plot_data=Non
     @param plot_data: Data for plotting the results of the algorithm
     @type plot_data: L{StutterPLotData}
 
+    @return: The abstraction
     @rtype: L{AbstractPwa}
     """
 
