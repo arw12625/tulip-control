@@ -121,7 +121,7 @@ class StutterAbstractionSettings:
         self.abs_tol = abs_tol
         self.max_iter = max_iter
         self.init_data_size = init_data_size
-        self.allow_resize = allow_resize
+        self.allow_resize = allow_resize  # TODO: implement dynamic reallocation
         self.abstraction_type = abstraction_type
         self.should_consider_divergent = should_consider_divergent
 
@@ -434,7 +434,7 @@ class _StutterAbstractionData:
         iter_count = 0
 
         # Do the abstraction
-        while not self.is_terminated() and iter_count < self.settings.max_iter:
+        while not self.is_terminated() and iter_count < self.settings.max_iter and self.num_regions() < self.data_size:
             msg = ''
             msg += "\t Number of regions: {nreg}\n".format(nreg=self.num_regions())
             msg += "\t Remaining pairs to check: {nrem}\n".format(nrem= \

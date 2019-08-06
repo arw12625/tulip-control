@@ -15,7 +15,7 @@ import polytope as pc
 from tulip.abstract import prop2part, PropPreservingPartition
 from tulip.abstract.plot import plot_partition
 
-from tulip.abstract.stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData, AbstractionType
+from tulip.abstract.cont_stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData, AbstractionType
 # @import_section_end@
 
 

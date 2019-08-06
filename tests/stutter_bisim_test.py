@@ -16,11 +16,11 @@ First modify solve_feasible to accept another argument restricting reachability 
 '''#!/usr/bin/env python
 """Tests of `transys.transys.simu_abstract`."""
 import logging
-from tulip.transys.transys import FTS, simu_abstract, simu_abstract_div_stutter
+from tulip.transys.transys import FTS, simu_abstract
+from tulip.abstract.finite_stutter_abstraction import *
 import numpy as np
 from polytope import box2poly
 from tulip.abstract import prop2part, discretize
-from tulip.transys.transys import get_admis_from_stutter_ctrl, update_stutter_ctrl_state
 from tulip import hybrid, spec, synth
 
 logging.basicConfig()
