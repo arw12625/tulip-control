@@ -445,13 +445,14 @@ class _StutterAbstractionData:
             target_index = ind[0][0]
 
             init_reg = deepcopy(self.sol[init_index])
-            target_reg = deepcopy(self.sol[init_index])
+            target_reg = deepcopy(self.sol[target_index])
             self.evaluate_index_pair(init_index, target_index)
 
             progress_ratio = self.update_progress()
             msg = '\t total # polytopes: {n_cells}\n'.format(n_cells=self.num_regions())
             msg += '\t progress ratio: {pr}\n'.format(pr=progress_ratio)
             logger.info(msg)
+            print(msg)
             iter_count += 1
 
             if not (plot_data is None):
@@ -530,7 +531,7 @@ class _StutterBiData(_StutterAbstractionData):
 
         # Check if the child region is equal to the parent region by testing
         # if the parent region is a subset of the child region withing tolerance
-        if pc.is_subset(orig_reg, part_reg, self.settings.abs_tol):
+        if pc.is_subset(orig_reg, part_reg, self.settings.abs_tol) or orig_reg.volume - part_reg.volume < self.settings.min_cell_volume:
             return index, True
 
         # If the regions are not equal, we proceed by splitting the parent region
@@ -714,7 +715,7 @@ class _StutterDualData(_StutterAbstractionData):
                 if node == new_index:
                     continue
                 node_reg = self.sol[node]
-                intersects = not pc.is_empty(pc.intersect(node_reg, child_reg))
+                intersects = _is_intersect(node_reg, child_reg, self.settings.min_cell_volume)
                 if intersects:
                     self.isect_graph.add_edge(node, new_index)
                     contained_in = pc.is_subset(child_reg, node_reg, self.settings.abs_tol)
@@ -788,7 +789,7 @@ class StutterPlotData:
     file_extension = 'pdf'
 
     def __init__(self, save_img=False, plot_every=0):
-        plt.ion()
+
         self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2)
         self.ax1.axis('scaled')
         self.ax2.axis('scaled')
@@ -812,6 +813,9 @@ class StutterPlotData:
         """
         if self.plot_every == 0 or iter_count % self.plot_every != 0:
             return
+
+        plt.ion()
+
         init_reg = deepcopy(init_reg_o)
         target_reg = deepcopy(target_reg_o)
 
@@ -825,10 +829,12 @@ class StutterPlotData:
         self.ax2.clear()
         init_reg.plot(ax=self.ax2, color='green')
         target_reg.plot(self.ax2, color='red', hatch='o', alpha=0.5)
+        stutter_data.sol[-1].plot(self.ax2, color='blue', alpha=0.2)
         plot_transition_arrow(init_reg, target_reg, self.ax2)
         self.fig.canvas.draw()
         # plot partition
         self.ax1.clear()
+
         plot_partition(tmp_part, stutter_data.transitions.T, ax=self.ax1, color_seed=23)
         # plot dynamics
         stutter_data.sys_dyn.plot(self.ax1, show_domain=False)
@@ -844,7 +850,10 @@ class StutterPlotData:
             fname = 'movie' + str(iter_count).zfill(3)
             fname += '.' + self.file_extension
             self.fig.savefig(fname, dpi=250)
-        plt.pause(1)
+        #plt.show()
+        plt.pause(0.01)
+
+        plt.ioff()
 
     def plot_final(self, progress):
         """Plot the final results of the algorithm and save if necessary
@@ -971,3 +980,19 @@ def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol):
         return ppre_reg
     else:
         return pc.Polytope()
+
+def _is_intersect(reg1 , reg2, min_vol):
+    """ Check if two regions intersect.
+    More specifically the intersection region is calculated and it is checked
+    that it is nonempty with at least the minimum volume
+
+    @param reg1: First region
+    @type reg1: L{Region}
+    @param reg2:  Second region
+    @type reg2: L{Region}
+    @param min_vol: Minimum volume to declare nonempty intersection
+    @return: Whether the regions intersect
+    @rtype: C{bool}
+    """
+    int_reg = pc.intersect(reg1, reg2)
+    return not pc.is_empty(int_reg) and int_reg.volume > min_vol
