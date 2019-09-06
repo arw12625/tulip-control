@@ -1066,7 +1066,6 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
                 # iterate pre until the original state is found
                 while not all(cur_set.contains(orig_state, abs_tol=-tolerance)):
                     admis.append(cur_set)
-                    old_set = cur_set
                     cur_set = cur_set.union(solve_feasible(stutter_reg, cur_set, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg))
                     cur_set = pc.reduce(cur_set)
                 admis.reverse()

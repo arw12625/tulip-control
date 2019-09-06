@@ -69,7 +69,7 @@ def linear_stutter_control():
     for i in range(7):
         print("step ", i)
         # Using the controller on the abstraction, determine an admissible sequence of regions
-        admis_state_reg_seq = get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_mealy, 0.0001)
+        admis_state_reg_seq = get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_mealy, 0.0001, 100)
         for admis_state_reg in admis_state_reg_seq:
             print("cur_orig_state", orig_state)
             print("cur_ctrl_state ", ctrl_state)
