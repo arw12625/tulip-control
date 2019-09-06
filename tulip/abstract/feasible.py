@@ -124,10 +124,10 @@ def solve_feasible(
     if closed_loop:
         if use_all_horizon:
             return _underapproximate_attractor(
-                P1, P2, ssys, N, trans_set=trans_set)
+                P1, P2, ssys, N, trans_set=trans_set, max_num_poly=max_num_poly)
         else:
             return _solve_closed_loop_fixed_horizon(
-                P1, P2, ssys, N, trans_set=trans_set)
+                P1, P2, ssys, N, trans_set=trans_set, max_num_poly=max_num_poly)
     else:
         if use_all_horizon:
             raise ValueError(
@@ -141,7 +141,7 @@ def solve_feasible(
 
 
 def _solve_closed_loop_fixed_horizon(
-        P1, P2, ssys, N, trans_set=None):
+        P1, P2, ssys, N, trans_set=None, max_num_poly=5):
     """Under-approximate states in P1 that can reach P2 in N > 0 steps.
 
     If intermediate polytopes are convex,
@@ -173,7 +173,7 @@ def _solve_closed_loop_fixed_horizon(
         # first step from P1
         if i == 1:
             pinit = p1
-        p2 = solve_open_loop(pinit, p2, ssys, 1, trans_set)
+        p2 = solve_open_loop(pinit, p2, ssys, 1, trans_set, max_num_poly=max_num_poly)
         p2 = pc.reduce(p2)
         if not pc.is_fulldim(p2):
             return pc.Polytope()
@@ -181,7 +181,7 @@ def _solve_closed_loop_fixed_horizon(
 
 
 def _solve_closed_loop_bounded_horizon(
-        P1, P2, ssys, N, trans_set=None):
+        P1, P2, ssys, N, trans_set=None, max_num_poly=5):
     """Under-approximate states in P1 that can reach P2 in <= N steps.
 
     See docstring of function `_solve_closed_loop_fixed_horizon`
@@ -200,7 +200,7 @@ def _solve_closed_loop_bounded_horizon(
         # first step from P1
         if i == 1:
             pinit = p1
-        p2 = solve_open_loop(pinit, p2, ssys, 1, trans_set)
+        p2 = solve_open_loop(pinit, p2, ssys, 1, trans_set, max_num_poly=max_num_poly)
         p2 = pc.reduce(p2)
         # running union
         s = s.union(p2, check_convex=True)
@@ -215,7 +215,7 @@ def _solve_closed_loop_bounded_horizon(
 
 
 def _underapproximate_attractor(
-        P1, P2, ssys, N, trans_set=None):
+        P1, P2, ssys, N, trans_set=None, max_num_poly=5):
     """Under-approximate N-step attractor of polytope P2, with N > 0.
 
     See docstring of function `_solve_closed_loop_fixed_horizon`
@@ -234,7 +234,7 @@ def _underapproximate_attractor(
         # first step from P1
         if i == 1:
             pinit = p1
-        r = solve_open_loop(pinit, p2, ssys, 1, trans_set)
+        r = solve_open_loop(pinit, p2, ssys, 1, trans_set, max_num_poly=max_num_poly)
         p2 = p2.union(r, check_convex=True)
         p2 = pc.reduce(p2)
         # empty target polytope ?

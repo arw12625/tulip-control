@@ -115,7 +115,7 @@ class StutterAbstractionSettings:
     def __init__(self, backwards_horizon=10, min_cell_volume=1e-2, abs_tol=1e-4,
                  max_iter=1e4, init_data_size=1000, allow_resize=False,
                  abstraction_type=AbstractionType.STUTTER_BISIMULATION,
-                 should_consider_divergent=True):
+                 should_consider_divergent=True, max_num_poly_per_reg=10):
         self.backwards_horizon = backwards_horizon
         self.min_cell_volume = min_cell_volume
         self.abs_tol = abs_tol
@@ -124,6 +124,7 @@ class StutterAbstractionSettings:
         self.allow_resize = allow_resize  # TODO: implement dynamic reallocation
         self.abstraction_type = abstraction_type
         self.should_consider_divergent = should_consider_divergent
+        self.max_num_poly_per_reg = max_num_poly_per_reg
 
 
 class _StutterAbstractionData:
@@ -166,11 +167,12 @@ class _StutterAbstractionData:
     """
     # Should this documentation not be in a docstring as it is a private class?
 
-    def __init__(self, sys_dyn, orig_ppp, settings):
+    def __init__(self, sys_dyn, orig_ppp, init_index_list, settings):
 
         self.settings = settings
         self.sys_dyn = sys_dyn
         self.orig_ppp = orig_ppp
+        self.init_index_list = init_index_list
 
         self.data_size = 0
         # The current solution, consisting of abstract states which are regions of the original system
@@ -307,7 +309,7 @@ class _StutterAbstractionData:
 
         # compute the subset of init_reg that can reach target_reg by an appropriate stutter path
         ppre_reg = _compute_ppre(init_reg, target_reg, self.sys_dyn, self.settings.backwards_horizon,
-                                 self.settings.min_cell_volume)
+                                 self.settings.min_cell_volume, max_num_poly=self.settings.max_num_poly_per_reg)
 
         if True:
             msg = '\n Working with partition cells: {i}, {j}'.format(i=init_index,
@@ -400,6 +402,8 @@ class _StutterAbstractionData:
         n = adj.shape[0]
         ofts_states = range(n)
         ofts.states.add_from(ofts_states)
+        if not (self.init_index_list is None):
+            ofts.states.initial.add_from([index for index, state in enumerate(self.sol2ppp) if state in self.init_index_list])
         ofts.transitions.add_adj(adj, ofts_states)
         # Decorate TS with state labels
         atomic_propositions = set(self.orig_ppp.prop_regions)
@@ -501,12 +505,13 @@ class _StutterBiData(_StutterAbstractionData):
         """
 
         region = self.sol[index]
-        reg_div = _compute_divergent(region, self.sys_dyn, self.settings.min_cell_volume, self.settings.abs_tol)
+        reg_div = _compute_divergent(region, self.sys_dyn, self.settings.min_cell_volume, self.settings.abs_tol, max_num_poly=self.settings.max_num_poly_per_reg)
 
         if reg_div.volume > self.settings.min_cell_volume:
             new_index, found = self.consider_state(index, reg_div)
 
             if not found:
+
                 self.is_divergent[index] = True
                 self.is_divergent[new_index] = False
             else:
@@ -603,7 +608,7 @@ class _StutterDualData(_StutterAbstractionData):
 
     """
 
-    def __init__(self, sys_dyn, orig_ppp, settings):
+    def __init__(self, sys_dyn, orig_ppp, init_index_list, settings):
 
         self.isect_graph = nx.Graph()
         self.isect_graph.add_nodes_from(range(len(orig_ppp.regions)))
@@ -611,7 +616,7 @@ class _StutterDualData(_StutterAbstractionData):
         self.containment_graph.add_nodes_from(range(len(orig_ppp.regions)))
         self.has_divergent = np.empty([0])
 
-        super(_StutterDualData, self).__init__(sys_dyn, orig_ppp, settings)
+        super(_StutterDualData, self).__init__(sys_dyn, orig_ppp, init_index_list, settings)
 
     def set_data_size(self, data_size):
         old_size = self.data_size
@@ -638,7 +643,7 @@ class _StutterDualData(_StutterAbstractionData):
             return
 
         region = self.sol[index]
-        reg_div = _compute_divergent(region, self.sys_dyn, self.settings.min_cell_volume, self.settings.abs_tol)
+        reg_div = _compute_divergent(region, self.sys_dyn, self.settings.min_cell_volume, self.settings.abs_tol, max_num_poly=self.settings.max_num_poly_per_reg)
 
         if reg_div.volume > self.settings.min_cell_volume:
             if region.volume - reg_div.volume > self.settings.abs_tol:
@@ -882,7 +887,7 @@ def _fix_region(child_reg, parent_reg):
     return child_reg
 
 
-def compute_stutter_abstraction(orig_ppp, sys_dyn,stutter_settings,plot_data=None):
+def compute_stutter_abstraction(orig_ppp, sys_dyn,stutter_settings,plot_data=None, init_index_list=None):
     """Perform a stutter abstraction algorithm on the given continuous system and partition
     Returns an abstracted system
 
@@ -899,15 +904,19 @@ def compute_stutter_abstraction(orig_ppp, sys_dyn,stutter_settings,plot_data=Non
     @param plot_data: Data for plotting the results of the algorithm
     @type plot_data: L{StutterPLotData}
 
+    @param init_index_list: A list of indices corresponding to regions in C{orig_ppp} that are taken to be initial
+    @type init_index_list: list of C{int}
+
     @return: The abstraction
     @rtype: L{AbstractPwa}
+
     """
 
     stutter_data = None
     if stutter_settings.abstraction_type is AbstractionType.STUTTER_BISIMULATION :
-        stutter_data = _StutterBiData(sys_dyn, orig_ppp, stutter_settings)
+        stutter_data = _StutterBiData(sys_dyn, orig_ppp, init_index_list, stutter_settings)
     elif stutter_settings.abstraction_type is AbstractionType.STUTTER_DUAL_SIMULATION:
-        stutter_data = _StutterDualData(sys_dyn, orig_ppp, stutter_settings)
+        stutter_data = _StutterDualData(sys_dyn, orig_ppp, init_index_list, stutter_settings)
     else:
         raise ValueError('Unknown simulation type')
     abstract_pwa = stutter_data.compute_stutter_abs(plot_data)
@@ -915,7 +924,7 @@ def compute_stutter_abstraction(orig_ppp, sys_dyn,stutter_settings,plot_data=Non
     return abstract_pwa
 
 
-def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20):
+def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20, max_num_poly=10):
     """Compute the divergent subset of a region with respect to a continuous system
 
     @param region: the region to compute the divergent subset of
@@ -939,7 +948,7 @@ def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20):
     # using one step pre
     s = region
     for n in range(max_iter):
-        spre = solve_feasible(s, s, sys_dyn)
+        spre = solve_feasible(s, s, sys_dyn, max_num_poly=max_num_poly)
         vol_diff = s.volume - spre.volume
         s = spre
         if s.volume < min_cell_volume:
@@ -953,7 +962,7 @@ def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20):
     return s
 
 
-def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol):
+def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol, max_num_poly=10):
     """Compute ppre for a given initial and target region
 
     @param init_reg: the initial region
@@ -974,7 +983,7 @@ def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol):
     @return: the ppre of the given regions
     @rtype: L{Region}
     """
-    ppre_reg = solve_feasible(init_reg, target_reg, sys_dyn, N, closed_loop=True, use_all_horizon=True, trans_set = init_reg)
+    ppre_reg = solve_feasible(init_reg, target_reg, sys_dyn, N, closed_loop=True, use_all_horizon=True, trans_set = init_reg, max_num_poly=max_num_poly)
     ppre_reg = _fix_region(ppre_reg, init_reg)
     if ppre_reg.volume > min_cell_vol:
         return ppre_reg
@@ -996,3 +1005,107 @@ def _is_intersect(reg1 , reg2, min_vol):
     """
     int_reg = pc.intersect(reg1, reg2)
     return not pc.is_empty(int_reg) and int_reg.volume > min_vol
+
+
+def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_ts, tolerance, max_num_poly_per_reg=10):
+    '''Compute admissible state transitions in a transition system given a controller on a system resulting from quotienting by a divergent stutter bisimulation
+    The controller must be specified as a finite transition system corresponding to the system's total behavior.
+    Each controller state must correspond to one stutter abstraction state specified by an attribute on incoming transitions ('loc')
+    Such a controller can be generated by the method C{synthesize}
+
+    @param orig_state: the current state of the original transition system
+
+    @param orig_sys_dyn: the original system to be controlled
+    @type orig_sys_dyn L{LtiSysDyn}
+
+    @param stutter_ts: the divergent stutter bisimulation quotient system
+    @type stutter_ts: L{AbstractPWA}
+
+    @param stutter_part: mappings between the states of the original system and the quotient
+    @type stutter_part: C{dict}
+
+    @param ctrl_state: the current state of the controller system
+
+    @param ctrl_ts: the controller system
+    @type ctrl_ts: L{FTS}
+
+    @return: the sequence of admissible regions
+    @rtype: list of C{Region}
+    '''
+    # could improve this method by returning an admissible sequence instead of a single step
+
+    orig_state = np.array(orig_state)
+    orig_state.shape = (len(orig_state), 1)
+    # The state in the quotient corresponding to the current state
+    stutter_state, stutter_reg = stutter_ts.ppp.ts2reg(orig_state)
+
+    # Whether this state is divergent in the quotient
+    # Does this computation assume that the quotient is by the coarsest relation
+    divergent = stutter_state in stutter_ts.ts.successors(stutter_state)
+
+    # The set of quotient states that are admissible by the controller
+    # stutter_succ_set = {stutter_succ for _, _, stutter_succ in ctrl_ts.edges([ctrl_state], data='loc')}
+    stutter_succ_set = {ctrl_ts.edges([ctrl_succ], data='loc')[0][2] for ctrl_succ in ctrl_ts.successors(ctrl_state)}
+    orig_succ_reg = _multiple_union_region([stutter_ts.ppp[s] for s in stutter_succ_set])
+    admis = []
+    if not divergent:
+        admis.append(stutter_reg.union(orig_succ_reg))
+    else:
+        if stutter_state in stutter_succ_set:
+            admis.append(orig_succ_reg)
+        else:
+            # States in the equivalence class of the current state that can transition in one step into an admissible equivalence class
+            exit_states = solve_feasible(stutter_reg, orig_succ_reg, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg)
+
+            if all(exit_states.contains(orig_state, abs_tol=-tolerance)):
+                admis.append(orig_succ_reg)
+            else:
+                admis.append(orig_succ_reg)
+                cur_set = exit_states;
+                reached = False
+                # iterate pre until the original state is found
+                while not all(cur_set.contains(orig_state, abs_tol=-tolerance)):
+                    admis.append(cur_set)
+                    old_set = cur_set
+                    cur_set = cur_set.union(solve_feasible(stutter_reg, cur_set, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg))
+                    cur_set = pc.reduce(cur_set)
+                admis.reverse()
+
+    return admis
+
+
+def update_stutter_ctrl_state(cur_ctrl_state, next_orig_state, stutter_ts, ctrl_ts):
+    '''Determine the controller state corresponding to a transition in the original system given the current controller state
+
+    @param cur_ctrl_state: the current state of the controller system
+
+    @param next_orig_state: the state of the original system that is being transitioned to
+
+    @param stutter_ts: the divergent stutter bisimulation quotient system
+    @type stutter_ts: L{FTS}
+
+    @param ctrl_ts: the controller system
+    @type ctrl_ts: L{FTS}
+
+    @return: new controller state
+    '''
+    next_stutter_state, _ = stutter_ts.ppp.ts2reg(next_orig_state)
+
+    if next_stutter_state == ctrl_ts.edges([cur_ctrl_state], data='loc')[0][2]:
+        next_ctrl_state = cur_ctrl_state
+    for next_state, _, corr_stutter_state in {ctrl_ts.edges([ctrl_succ], data='loc')[0] for ctrl_succ in
+                                              ctrl_ts.successors(cur_ctrl_state)}:
+        print(next_state)
+        if corr_stutter_state == next_stutter_state:
+            next_ctrl_state = next_state
+            break
+
+    return next_ctrl_state
+
+def _multiple_union_region(reg_list):
+
+    union_reg = pc.Region()
+    for reg in reg_list:
+        union_reg = union_reg.union(reg)
+
+    return union_reg

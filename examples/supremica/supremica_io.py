@@ -95,7 +95,11 @@ def read_xml_automaton_as_graph(inputpath):
     root = wmod.getroot()
     
     g = nx.MultiDiGraph()
-    
+    g.graph['name'] = root.get('Name')
+
+    controllable = set()
+    uncontrollable = set()
+
     automaton = root.find('Automaton')
     g.graph['name']=automaton.get("name")
     
@@ -107,7 +111,14 @@ def read_xml_automaton_as_graph(inputpath):
         id = event.get('id')
         label = event.get('label')
         event_dict[id] = label
-    
+        if event.get('controllable') == 'false':
+            uncontrollable.add(label)
+        else:
+            controllable.add(label)
+
+    props = set('forbidden', 'accepting')
+
+    init_nodes = []
     states = automaton.find('States')
     for state in states.findall('State'):
         id = state.get('id')
@@ -116,8 +127,14 @@ def read_xml_automaton_as_graph(inputpath):
         g.add_node(name)
         if state.get('initial') == "true":
             g.node[name]['initial'] = True
+            init_nodes.append(name)
+        if state.get('forbidden') == 'true':
+            g.node[name]['forbidden'] = True
+        if state.get('accepting') == 'true':
+            g.node[name]['accepting'] = True
     
-    print(state_dict)
+    g.graph['init_nodes'] = init_nodes
+
     transitions = automaton.find('Transitions')
     for trans in transitions.findall('Transition'):
         source = trans.get('source')

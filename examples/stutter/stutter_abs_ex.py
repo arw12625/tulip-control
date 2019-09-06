@@ -63,13 +63,14 @@ cont_props['s3'] = box2poly([[1, 1.5]])
 # Continuous state space
 cont_state_space = box2poly([[-1, 1], [-1, 1]])
 
+
 # Continuous dynamics
 # (continuous-state, discrete-time)
-A = np.array([[0.5, 1], [1, -1]])
+A = np.array([[0.5, 1], [0.75, -1]])
 #A = 2 * np.random.rand(2, 2)
 theta = np.pi / 8
 #A = np.array([[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]])
-B = 0.5 * np.array([[1, 0], [0, 1]])
+B = np.array([[1, 0], [0, 1]])
 E = np.array([[0], [0]])
 
 U = box2poly(np.array([[-1., 1.], [-1, 1]]))
@@ -110,14 +111,11 @@ stutter_settings = StutterAbstractionSettings(
     min_cell_volume=0.01, max_iter=1000000, init_data_size=10000)
 plot_data = StutterPlotData(save_img=False, plot_every=10)
 
-print(A)
 stutter_dynamics = compute_stutter_abstraction(
         cont_partition, sys_dyn, stutter_settings, plot_data
 )
-print(A)
 
 print(stutter_dynamics)
-print(A)
 
 # @abstraction_section@
 
@@ -125,7 +123,6 @@ print(A)
 
 plot_partition(stutter_dynamics.ppp, stutter_dynamics.ts,
                stutter_dynamics.ppp2ts) if show else None
-print(A)
 
-filehandler = open("../data/stutter/tes_4.obj", 'wb')
+filehandler = open("data/wagen_lin_sys_abs.obj", 'wb')
 pickle.dump(stutter_dynamics, filehandler)

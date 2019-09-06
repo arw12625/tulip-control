@@ -503,6 +503,22 @@ class PropPreservingPartition(pc.MetricPartition):
     def reg2props(self, region_index):
         return self.regions[region_index].props.copy()
 
+    def ts2reg(self, state):
+        '''Find the ppp region a state is contained in
+
+        @param state: the state of the system
+
+        @return: the region index and region of the ppp containing C{state}
+        @rtype: C{int}, L{Region}
+        '''
+        state_vec = np.array(state)
+        state_vec.shape = (len(state), 1)
+        for index, reg in enumerate(self.regions):
+            if reg.contains(state_vec):
+                return index, reg
+
+        return None
+
     #TODO: iterator over pairs
     #TODO: use nx graph to store partition
 
