@@ -12,6 +12,8 @@ import pickle
 from matplotlib import pyplot as plt
 import matplotlib.lines as mlines
 
+import time
+
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 def build_abstraction():
     '''Build the abstracted system and define a specification
     '''
-    stutter_sys = pickle.load( open( "data/path_abs.obj", "rb" ) )
+    stutter_sys = pickle.load( open( "data/path_abs_bi_no_obs.obj", "rb" ) )
     orig_sys_dyn = stutter_sys.pwa
 
     # Environment variables and requirements
@@ -32,7 +34,8 @@ def build_abstraction():
     sys_vars = set()
     sys_init = {'init'}
     sys_prog = {'target'}
-    sys_safe = {'!obs'}
+    #sys_safe = {'!obs'}
+    sys_safe = set()
     sys_prog |= set()
 
     specs = spec.GRSpec(env_vars, sys_vars, env_init, sys_init,
@@ -43,6 +46,9 @@ def build_abstraction():
 
 
 def linear_stutter_control():
+
+    start_time = time.time()
+
     # build an example finite transition system with a desired specification
     [stutter_ts, orig_sys_dyn, specs] = build_abstraction()
 
@@ -66,7 +72,7 @@ def linear_stutter_control():
     input_seq = []
     state_seq = []
     state_seq.append(orig_state)
-    for i in range(7):
+    for i in range(25):
         print("step ", i)
         # Using the controller on the abstraction, determine an admissible sequence of regions
         admis_state_reg_seq = get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_mealy, 0.0001, 100)
@@ -90,6 +96,8 @@ def linear_stutter_control():
             print('next_orig_state', orig_state)
             print("next_ctrl_state ", ctrl_state)
 
+    print("Path planning time %s[sec]" % (time.time() - start_time))
+
     # plot trajectory on partition
     for first, second in zip(state_seq, state_seq[1:]):
         l = mlines.Line2D([first[0], second[0]], [first[1], second[1]])
@@ -107,7 +115,7 @@ def _compute_admissible_input_region(state, target_reg, sys_dyn):
             b=np.concatenate(
                 (polytope.b - polytope.A.dot(sys_dyn.A).dot(state), sys_dyn.Uset.b), axis=0))
         input_poly = pc.reduce(input_poly)
-        input_reg = input_reg.union(input_poly)
+        input_reg = input_reg.union(input_poly, check_convex=True)
     input_reg = pc.reduce(input_reg)
 
     return input_reg

@@ -353,8 +353,8 @@ class _StutterAbstractionData:
             reg_index, found = self.consider_state(init_index, ppre_reg)
             if found:
                 # If the set is already present, then only a transition is added to the found state
-                logger.info('Found: {i} ---> {j}\n'.format(i=init_index, j=target_index))
-                self.transitions[target_index, init_index] = 1
+                logger.info('Found: {i} ---> {j}\n'.format(i=reg_index, j=target_index))
+                self.transitions[target_index, reg_index] = 1
             else:
                 # If the set was not present in the solution, the transition is to the new state
                 # Additionally, we consider the divergent subset of the new set and
@@ -527,7 +527,8 @@ class _StutterBiData(_StutterAbstractionData):
         @param part_reg: One part/subregion of the parent to split, the other part is given by its complement
         @type part_reg: L{Region}
 
-        @return: The index of the new region if it was not found in the solution and whether it was found
+        @return: The index of the found region if it was found or the index of the new region if it was
+        not found in the solution, and whether or not the region was found in the existing solution.
         Note by the nature of splitting sets in the bisimulation algorithm, the new region can be found
         in the solution if and only if it is equal to the parent region.
         @rtype: C{int}, C{bool}
@@ -542,7 +543,7 @@ class _StutterBiData(_StutterAbstractionData):
         # If the regions are not equal, we proceed by splitting the parent region
         diff_reg = orig_reg.diff(part_reg)
         # Fix the result so that it is a region with the correct proposition labeling
-        diff_reg = _fix_region(diff_reg, orig_reg)
+        diff_reg = _fix_region(diff_reg, orig_reg, self.settings.min_cell_volume)
 
         # The new region is appended to the end of the solution
         new_index = self.num_regions()
@@ -554,7 +555,7 @@ class _StutterBiData(_StutterAbstractionData):
         self.is_divergent[new_index] = self.is_divergent[index]
         self.sol2ppp[new_index] = self.sol2ppp[index]
 
-        self.transitions[:, new_index] = self.transitions[:, index]
+        #self.transitions[:, new_index] = self.transitions[:, index]
         self.transitions[index, :] = 0
 
         # All pairs involving the added child region and new difference region must be evaluated
@@ -752,7 +753,7 @@ class _StutterDualData(_StutterAbstractionData):
                 if child in to_remove:
                     continue
                 region = region.diff(self.sol[child])
-                region = _fix_region(region, self.sol[child])
+                region = _fix_region(region, self.sol[child], self.settings.min_cell_volume)
                 self.sol[index] = region
                 if pc.is_empty(region) or region.volume < self.settings.min_cell_volume:
                     to_remove.append(index)
@@ -874,7 +875,7 @@ class StutterPlotData:
             ax.figure.savefig('progress.pdf')
 
 
-def _fix_region(child_reg, parent_reg):
+def _fix_region(child_reg, parent_reg, min_cell_volume):
     """ Fix the child region by ensuring that it is a proper region,
     and forming a region from it if it is a polytope.
     Additionally set the child's labeling to match the parent's
@@ -884,6 +885,8 @@ def _fix_region(child_reg, parent_reg):
         child_reg = pc.Region([child_reg], parent_reg.props)
     else:
         child_reg.props = parent_reg.props.copy()
+        child_reg.list_poly = [poly for poly in child_reg.list_poly if poly.volume > min_cell_volume]
+
     return child_reg
 
 
@@ -958,7 +961,7 @@ def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20, m
             break
         if n == max_iter - 1:
             logger.debug("Computation of divergent subset did not converge. Consider increasing max_iter")
-    s = _fix_region(s, region)
+    s = _fix_region(s, region, min_cell_volume)
     return s
 
 
@@ -983,8 +986,8 @@ def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol, max_num_poly=1
     @return: the ppre of the given regions
     @rtype: L{Region}
     """
-    ppre_reg = solve_feasible(init_reg, target_reg, sys_dyn, N, closed_loop=True, use_all_horizon=True, trans_set = init_reg, max_num_poly=max_num_poly)
-    ppre_reg = _fix_region(ppre_reg, init_reg)
+    ppre_reg = solve_feasible(init_reg, target_reg, sys_dyn, N, closed_loop=True, use_all_horizon=True, max_num_poly=max_num_poly)
+    ppre_reg = _fix_region(ppre_reg, init_reg, min_cell_vol)
     if ppre_reg.volume > min_cell_vol:
         return ppre_reg
     else:
@@ -1049,7 +1052,7 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
     orig_succ_reg = _multiple_union_region([stutter_ts.ppp[s] for s in stutter_succ_set])
     admis = []
     if not divergent:
-        admis.append(stutter_reg.union(orig_succ_reg))
+        admis.append(stutter_reg.union(orig_succ_reg, check_convex=True))
     else:
         if stutter_state in stutter_succ_set:
             admis.append(orig_succ_reg)
@@ -1057,17 +1060,23 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
             # States in the equivalence class of the current state that can transition in one step into an admissible equivalence class
             exit_states = solve_feasible(stutter_reg, orig_succ_reg, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg)
 
-            if all(exit_states.contains(orig_state, abs_tol=-tolerance)):
+            #remove tolerance for bisim?
+            if all(exit_states.contains(orig_state, abs_tol=-0)):
                 admis.append(orig_succ_reg)
             else:
                 admis.append(orig_succ_reg)
                 cur_set = exit_states;
-                reached = False
                 # iterate pre until the original state is found
-                while not all(cur_set.contains(orig_state, abs_tol=-tolerance)):
+                old_vol = cur_set.volume
+                while not all(cur_set.contains(orig_state, abs_tol=-0)):
                     admis.append(cur_set)
-                    cur_set = cur_set.union(solve_feasible(stutter_reg, cur_set, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg))
+                    reach_set = solve_feasible(stutter_reg, cur_set, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg)
+                    cur_set = cur_set.union(reach_set, check_convex=True)
                     cur_set = pc.reduce(cur_set)
+                    if cur_set.volume - old_vol < tolerance:
+                        print("Error. No feasbile state trajectory.")
+                        return None;
+                    old_vol = cur_set.volume
                 admis.reverse()
 
     return admis
@@ -1105,6 +1114,6 @@ def _multiple_union_region(reg_list):
 
     union_reg = pc.Region()
     for reg in reg_list:
-        union_reg = union_reg.union(reg)
+        union_reg = union_reg.union(reg, check_convex=True)
 
     return union_reg

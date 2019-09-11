@@ -459,7 +459,7 @@ def discretize(
     trans_length=1, remove_trans=False,
     abs_tol=1e-7,
     plotit=False, save_img=False, cont_props=None,
-    plot_every=1
+    plot_every=1, init_part_index_list=[]
 ):
     """Refine the partition and establish transitions
     based on reachability analysis.
@@ -944,6 +944,9 @@ def discretize(
     for state, region in zip(ofts_states, sol):
         state_prop = region.props.copy()
         ofts.states.add(state, ap=state_prop)
+
+    if not (init_part_index_list is None):
+        ofts.states.initial.add_from([index for index, state in enumerate(part2orig) if state in init_part_index_list])
 
     param = {
         'N':N,
