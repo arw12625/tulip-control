@@ -59,6 +59,7 @@ from .prop2partition import PropPreservingPartition
 from .feasible import solve_feasible
 
 from tulip.abstract.discretization import AbstractPwa
+
 from enum import Enum
 import networkx as nx
 
@@ -127,7 +128,7 @@ class StutterAbstractionSettings:
         self.max_num_poly_per_reg = max_num_poly_per_reg
 
 
-class _StutterAbstractionData:
+class _StutterAbstractionData(object):
     """Internal helper abstract class for running the stutter abstraction algorithms.
     See L{_StutterBiData} and L{_StutterDualData} below
 
@@ -309,7 +310,8 @@ class _StutterAbstractionData:
 
         # compute the subset of init_reg that can reach target_reg by an appropriate stutter path
         ppre_reg = _compute_ppre(init_reg, target_reg, self.sys_dyn, self.settings.backwards_horizon,
-                                 self.settings.min_cell_volume, max_num_poly=self.settings.max_num_poly_per_reg)
+                                 self.settings.min_cell_volume, self.settings.abs_tol,
+                                 max_num_poly=self.settings.max_num_poly_per_reg)
 
         if True:
             msg = '\n Working with partition cells: {i}, {j}'.format(i=init_index,
@@ -543,7 +545,7 @@ class _StutterBiData(_StutterAbstractionData):
         # If the regions are not equal, we proceed by splitting the parent region
         diff_reg = orig_reg.diff(part_reg)
         # Fix the result so that it is a region with the correct proposition labeling
-        diff_reg = _fix_region(diff_reg, orig_reg, self.settings.min_cell_volume)
+        diff_reg = _fix_region(diff_reg, orig_reg, self.settings.abs_tol)
 
         # The new region is appended to the end of the solution
         new_index = self.num_regions()
@@ -753,7 +755,7 @@ class _StutterDualData(_StutterAbstractionData):
                 if child in to_remove:
                     continue
                 region = region.diff(self.sol[child])
-                region = _fix_region(region, self.sol[child], self.settings.min_cell_volume)
+                region = _fix_region(region, self.sol[child], self.settings.abs_tol)
                 self.sol[index] = region
                 if pc.is_empty(region) or region.volume < self.settings.min_cell_volume:
                     to_remove.append(index)
@@ -961,11 +963,11 @@ def _compute_divergent(region, sys_dyn, min_cell_volume, abs_tol, max_iter=20, m
             break
         if n == max_iter - 1:
             logger.debug("Computation of divergent subset did not converge. Consider increasing max_iter")
-    s = _fix_region(s, region, min_cell_volume)
+    s = _fix_region(s, region, abs_tol)
     return s
 
 
-def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol, max_num_poly=10):
+def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol,  abs_tol, max_num_poly=10):
     """Compute ppre for a given initial and target region
 
     @param init_reg: the initial region
@@ -987,7 +989,7 @@ def _compute_ppre(init_reg, target_reg, sys_dyn, N, min_cell_vol, max_num_poly=1
     @rtype: L{Region}
     """
     ppre_reg = solve_feasible(init_reg, target_reg, sys_dyn, N, closed_loop=True, use_all_horizon=True, max_num_poly=max_num_poly)
-    ppre_reg = _fix_region(ppre_reg, init_reg, min_cell_vol)
+    ppre_reg = _fix_region(ppre_reg, init_reg, abs_tol)
     if ppre_reg.volume > min_cell_vol:
         return ppre_reg
     else:
@@ -1010,7 +1012,7 @@ def _is_intersect(reg1 , reg2, min_vol):
     return not pc.is_empty(int_reg) and int_reg.volume > min_vol
 
 
-def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_ts, tolerance, max_num_poly_per_reg=10):
+def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_ts, tolerance, max_num_poly_per_reg=20):
     '''Compute admissible state transitions in a transition system given a controller on a system resulting from quotienting by a divergent stutter bisimulation
     The controller must be specified as a finite transition system corresponding to the system's total behavior.
     Each controller state must correspond to one stutter abstraction state specified by an attribute on incoming transitions ('loc')
@@ -1036,11 +1038,13 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
     @rtype: list of C{Region}
     '''
     # could improve this method by returning an admissible sequence instead of a single step
-
     orig_state = np.array(orig_state)
     orig_state.shape = (len(orig_state), 1)
     # The state in the quotient corresponding to the current state
-    stutter_state, stutter_reg = stutter_ts.ppp.ts2reg(orig_state)
+    #stutter_state, stutter_reg = stutter_ts.ppp.ts2reg(orig_state)
+
+    stutter_state = ctrl_ts.edges([ctrl_state], data='loc')[0][2]
+    stutter_reg = stutter_ts.ppp[stutter_state]
 
     # Whether this state is divergent in the quotient
     # Does this computation assume that the quotient is by the coarsest relation
@@ -1049,6 +1053,7 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
     # The set of quotient states that are admissible by the controller
     # stutter_succ_set = {stutter_succ for _, _, stutter_succ in ctrl_ts.edges([ctrl_state], data='loc')}
     stutter_succ_set = {ctrl_ts.edges([ctrl_succ], data='loc')[0][2] for ctrl_succ in ctrl_ts.successors(ctrl_state)}
+
     orig_succ_reg = _multiple_union_region([stutter_ts.ppp[s] for s in stutter_succ_set])
     admis = []
     if not divergent:
@@ -1059,13 +1064,12 @@ def get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state
         else:
             # States in the equivalence class of the current state that can transition in one step into an admissible equivalence class
             exit_states = solve_feasible(stutter_reg, orig_succ_reg, orig_sys_dyn, N=1, max_num_poly=max_num_poly_per_reg)
-
             #remove tolerance for bisim?
             if all(exit_states.contains(orig_state, abs_tol=-0)):
                 admis.append(orig_succ_reg)
             else:
                 admis.append(orig_succ_reg)
-                cur_set = exit_states;
+                cur_set = exit_states
                 # iterate pre until the original state is found
                 old_vol = cur_set.volume
                 while not all(cur_set.contains(orig_state, abs_tol=-0)):
@@ -1103,7 +1107,6 @@ def update_stutter_ctrl_state(cur_ctrl_state, next_orig_state, stutter_ts, ctrl_
         next_ctrl_state = cur_ctrl_state
     for next_state, _, corr_stutter_state in {ctrl_ts.edges([ctrl_succ], data='loc')[0] for ctrl_succ in
                                               ctrl_ts.successors(cur_ctrl_state)}:
-        print(next_state)
         if corr_stutter_state == next_stutter_state:
             next_ctrl_state = next_state
             break
@@ -1115,5 +1118,8 @@ def _multiple_union_region(reg_list):
     union_reg = pc.Region()
     for reg in reg_list:
         union_reg = union_reg.union(reg, check_convex=True)
+
+    for poly in union_reg:
+        poly.b = poly.b - 0.000001 * np.ones(poly.b.shape[0])
 
     return union_reg

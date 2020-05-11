@@ -8,6 +8,7 @@ from polytope import box2poly
 from tulip.abstract import prop2part, discretize
 from tulip import hybrid, spec, synth
 import pickle
+from polytope import extreme
 
 from matplotlib import pyplot as plt
 import matplotlib.lines as mlines
@@ -21,7 +22,10 @@ logger = logging.getLogger(__name__)
 def build_abstraction():
     '''Build the abstracted system and define a specification
     '''
-    stutter_sys = pickle.load( open( "data/path_abs_bi_no_obs.obj", "rb" ) )
+    #7.67
+    stutter_sys = pickle.load( open( "data/bisim_slant_small_1.obj", "rb" ) )
+    #7.5
+    #stutter_sys = pickle.load( open( "data/stutter_slant_small_1.obj", "rb" ) )
     orig_sys_dyn = stutter_sys.pwa
 
     # Environment variables and requirements
@@ -55,24 +59,25 @@ def linear_stutter_control():
     plt.ion()
     fig1 = plt.figure()
     ax = fig1.add_subplot(1, 1, 1)
-    plot_partition(stutter_ts.ppp, ax=ax)
+    plot_partition(stutter_ts.ppp, ax=ax, plot_numbers=False)
     plt.pause(.01)
     plt.ioff()
 
     # synthesize a controller for the abstraction as a Mealy machine representing the closed loop dynamics
     ctrl_mealy = synth.synthesize(specs, sys=stutter_ts.ts, ignore_sys_init=False)
     print(ctrl_mealy)
+    #print(stutter_ts)
 
     # identify an initial control and system state for simulation
     ctrl_state, _, edge_data = ctrl_mealy.edges('Sinit', data=True)[0]
     orig_reg = stutter_ts.ppp[edge_data['loc']]
-    orig_state = orig_reg.chebXc
+    orig_state = np.array([0.5,-0.5001])#orig_reg.chebXc - [0,0.001]
 
     # simulate the closed loop system for a fixed horizon and record the input and state sequence
     input_seq = []
     state_seq = []
     state_seq.append(orig_state)
-    for i in range(25):
+    for i in range(50):
         print("step ", i)
         # Using the controller on the abstraction, determine an admissible sequence of regions
         admis_state_reg_seq = get_admis_from_stutter_ctrl(orig_state, orig_sys_dyn, stutter_ts, ctrl_state, ctrl_mealy, 0.0001, 100)
@@ -99,23 +104,31 @@ def linear_stutter_control():
     print("Path planning time %s[sec]" % (time.time() - start_time))
 
     # plot trajectory on partition
+    dist = 0
+    x = [state_seq[ind][0] for ind in range(len(state_seq))]
+    y = [state_seq[ind][1] for ind in range(len(state_seq))]
+    ax.plot(x, y, 'k', linewidth=4, marker='o', markersize=8)
     for first, second in zip(state_seq, state_seq[1:]):
-        l = mlines.Line2D([first[0], second[0]], [first[1], second[1]])
-        ax.add_line(l)
+        #l = mlines.Line2D([first[0], second[0]], [first[1], second[1]])
+        #ax.add_line(l,'k',linewidth=2)
+        #ax.plot(first[0],first[1],'k',marker='o',markersize=8)
+        dist = dist + np.sqrt((second[0] - first[0]) * (second[0] - first[0]) + (second[1] - first[1]) * (second[1] - first[1]))
+    print(dist)
     plt.show()
 
 def _compute_admissible_input_region(state, target_reg, sys_dyn):
     '''Construct the region of admissible inputs by combining linear constraints'''
-    input_reg = pc.Region()
+
+    input_polys = []
     if not isinstance(target_reg, pc.Region):
         target_reg = pc.Region([target_reg])
     for polytope in target_reg:
         input_poly = pc.Polytope(
             A=np.concatenate((polytope.A.dot(sys_dyn.B), sys_dyn.Uset.A), axis=0),
             b=np.concatenate(
-                (polytope.b - polytope.A.dot(sys_dyn.A).dot(state), sys_dyn.Uset.b), axis=0))
-        input_poly = pc.reduce(input_poly)
-        input_reg = input_reg.union(input_poly, check_convex=True)
+                (polytope.b - polytope.A.dot(sys_dyn.A).dot(state), sys_dyn.Uset.b*1.02), axis=0))
+        input_polys.append(input_poly)
+    input_reg = pc.Region(list_poly=input_polys)
     input_reg = pc.reduce(input_reg)
 
     return input_reg
