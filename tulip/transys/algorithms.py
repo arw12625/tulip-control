@@ -36,6 +36,7 @@ from __future__ import print_function
 import logging
 import copy
 from tulip.transys.transys import FiniteTransitionSystem
+from tulip.transys.transys import FTS
 from tulip.transys.automata import BuchiAutomaton
 import networkx as nx
 from tulip.interfaces import ltl2ba as ltl2baint
@@ -74,11 +75,13 @@ def ltl2ba(formula):
 
 
 def _multiply_mutable_states(self, other, prod_graph, prod_sys):
+
     def prod_ids2states(prod_state_id, self, other):
-        (idx1, idx2) = prod_state_id
-        state1 = self.states._int2mutant(idx1)
-        state2 = other.states._int2mutant(idx2)
-        prod_state = (state1, state2)
+        #(idx1, idx2) = prod_state_id
+        #state1 = self.states[idx1]
+        #state2 = other.states[idx2]
+        #prod_state = (state1, state2)
+        prod_state = prod_state_id
         return prod_state
 
     def label_union(nx_label):
@@ -112,7 +115,6 @@ def _multiply_mutable_states(self, other, prod_graph, prod_sys):
 
         prod_sys.states.add(prod_state)
         prod_sys.states.add(prod_state, **prod_attr_dict)
-    print(prod_sys.states)
 
     # prod of initial states
     inits1 = self.states.initial
@@ -162,7 +164,7 @@ def tensor_product(self, other, prod_sys=None):
         else:
             mutable = False
         prod_sys = LabeledDiGraph(mutable=mutable)
-    prod_sys = self._multiply_mutable_states(
+    prod_sys = _multiply_mutable_states(self,
         other, prod_graph, prod_sys)
     return prod_sys
 
@@ -226,8 +228,11 @@ def ts_sync_prod(ts1, ts2):
     #
     # for synchronous product: Cartesian product of action sets
     # prod_ts.actions |= ts1.actions * ts2.actions
-    prod_ts = super(FiniteTransitionSystem, self).tensor_product(
-        ts, prod_sys=prod_ts)
+    #print(type(ts1))
+    #print(type(super(FTS,ts1)))
+    #print(type(super(FiniteTransitionSystem, ts1)))
+    #prod_ts = tensor_product(super(FiniteTransitionSystem, ts1), ts2, prod_sys=prod_ts)
+    prod_ts = tensor_product(ts1,ts2, prod_sys=prod_ts)
     return prod_ts
 
 

@@ -65,13 +65,14 @@ def simu_abstract_div_stutter(ts):
 
     [cond_G, cond_S0, div_state] = _expand_divergence_system(ts)
 
-    # initialize blocks and set node attributes accordingly
     sol = []
+    # initialize blocks and set node attributes accordingly
     for ap in cond_S0:
+        #if not div_state in cond_S0[ap]:
         sol.append(cond_S0[ap])
         # nx.set_node_attributes(cond_G, 'block', {s:(len(sol) - 1) for s in cond_S0[ap]})
 
-    n_cells = len(cond_S0)
+    n_cells = len(sol)
     IJ = np.ones([n_cells, n_cells])
     transitions = np.zeros([n_cells, n_cells])
     while np.sum(IJ) > 0:
@@ -193,17 +194,15 @@ def _output_fts_stutter(ts, cond_G, transitions, sol, div_state):
     ts_simu.states.initial.add_from(S_init)
     AP = ts.aps
     ts_simu.atomic_propositions.add_from(AP)
-
     for i in S:
         ts_simu.states.add(i, ap=ts.node[next(iter(cond_G.node[next(iter(sol[i]))]['members']))]['ap'])
     for i in S:
-        for j in range(n_cells):
+        for j in range(n_cells+1):
             if transitions[j, i]:
                 if j == div_index:
                     ts_simu.transitions.add(i, i)
                 else:
                     ts_simu.transitions.add(i, j)
-
     return ts_simu, Part_hash
 
 
@@ -325,23 +324,34 @@ def get_admis_from_stutter_ctrl(orig_state, orig_ts, stutter_ts, stutter_part, c
     # Does this computation assume that the quotient is by the coarsest relation
     divergent = stutter_state in stutter_ts.successors(stutter_state)
 
+    #print('Start get admis')
+    #print("CTRL: "+str(ctrl_state))
+    #print('Stutter_state'+str(stutter_state))
+    #print('Divergent: '+str(divergent))
     # The set of quotient states that are admissible by the controller
     # stutter_succ_set = {stutter_succ for _, _, stutter_succ in ctrl_ts.edges([ctrl_state], data='loc')}
-    stutter_succ_set = {ctrl_ts.edges([ctrl_succ], data='loc')[0][2] for ctrl_succ in ctrl_ts.successors(ctrl_state)}
+    #stutter_succ_set = {ctrl_ts.edges([ctrl_succ], data='loc')[0][2] for ctrl_succ in ctrl_ts.successors(ctrl_state)}
+    stutter_succ_set = {loc for _, _, loc in ctrl_ts.edges([ctrl_state], data='loc')}
+    #print('Valid stutter succs: '+str(stutter_succ_set))
     orig_succ_set = set.union(*[stutter_part['simu2ts'][s] for s in stutter_succ_set])
+    #print('orig succs: '+str(orig_succ_set))
     admis = set()
     if not divergent:
         admis = (stutter_part['simu2ts'][stutter_state]).union(orig_succ_set)
     else:
         if stutter_state in stutter_succ_set:
+            #print("IN succ")
             admis = set.union(orig_succ_set)
         else:
+            #print("Need to move")
             # States in the equivalence class of the current state that can transition in one step into an admissible equivalence class
-            exit_states = set.union(*[orig_ts.predecessors(x) for x in orig_succ_set]).intersection(
+            exit_states = set.union(*[set(orig_ts.predecessors(x)) for x in orig_succ_set]).intersection(
                 stutter_part['simu2ts'][stutter_state])
+            #print("EXIT STATES: "+str(exit_states))
             if orig_state in exit_states:
                 admis = set.union(orig_succ_set)
             else:
+                #print("NEED STUTTER STEPS")
                 cur_set = exit_states;
                 old_set = cur_set;
                 stutter_graph = MultiDiGraph(orig_ts).subgraph(stutter_part['simu2ts'][stutter_state])
@@ -349,7 +359,8 @@ def get_admis_from_stutter_ctrl(orig_state, orig_ts, stutter_ts, stutter_part, c
                 # iterate ppre until the original state is found
                 while orig_state not in cur_set:
                     old_set = cur_set
-                    cur_set = set.union(*[stutter_graph.predecessors(x) for x in cur_set])
+                    cur_set = set.union(*[set(stutter_graph.predecessors(x)) for x in cur_set])
+                    #print("CURRENT SET: "+str(cur_set))
                 admis = old_set
 
     return admis
@@ -371,11 +382,19 @@ def update_stutter_ctrl_state(cur_ctrl_state, next_orig_state, stutter_part, ctr
     @return: new controller state
     '''
     next_stutter_state = next(iter(stutter_part['ts2simu'][next_orig_state]))
-
-    for next_state, _, corr_stutter_state in {ctrl_ts.edges([ctrl_succ], data='loc')[0] for ctrl_succ in
-                                              ctrl_ts.successors(cur_ctrl_state)}:
+    #print("UPDATE")
+    #print(cur_ctrl_state)
+    #print(next_orig_state)
+    #print(next_stutter_state)
+    #print(ctrl_ts.successors(cur_ctrl_state))
+    next_ctrl_state = None
+    for _, next_state, corr_stutter_state in ctrl_ts.edges([cur_ctrl_state], data='loc'):
+        #print("POS NEXT CTRL: "+str(next_state))
+        #print("CORR STUTTER: "+str(corr_stutter_state))
         if corr_stutter_state == next_stutter_state:
+            #print("FOUND")
             next_ctrl_state = next_state
             break
-
+    if not next_ctrl_state:
+        next_ctrl_state = cur_ctrl_state
     return next_ctrl_state

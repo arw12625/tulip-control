@@ -18,8 +18,9 @@ import polytope as pc
 from tulip.abstract import prop2part, PropPreservingPartition
 from tulip.abstract.plot import plot_partition
 
-from matplotlib import pyplot as plt
-
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
 
 from tulip.abstract.cont_stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData, AbstractionType
 from tulip.abstract.discretization import discretize
@@ -27,12 +28,12 @@ from tulip.abstract.discretization import discretize
 import pickle
 
 solvers.default_solver = 'glpk'
-solvers.options['msg_lev']='GLP_MSG_OFF'
+#solvers.options['msg_lev']='GLP_MSG_OFF'
 logging.basicConfig(level=logging.WARNING)
-show = True
+show = False
 
-abs_type = 'dual'
-export_name = "data/dual_slant_small_1.obj"
+abs_type = 'bisim'
+export_name = "data/bi_10_13.obj"
 
 # Continuous state space
 #cont_state_space = box2poly([[-3, 3], [-2, 2]])
@@ -41,7 +42,8 @@ cont_state_space = box2poly([[0, 6], [-5, 0]])
 # Continuous dynamics
 # (continuous-state, discrete-time)
 A = np.array([[1, 0], [0, 1]])
-B = 0.340001 * np.array([[1, 0], [0, 1]])
+B = 4*0.340001 * np.array([[1, 0], [0, 1]])
+#B = 0.340001 * np.array([[1, 0], [0, 1]])
 #B = np.array([[0.7, -0.7], [0.7, 0.7]])/8
 E = np.array([[0], [0]])
 

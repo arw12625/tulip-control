@@ -1,78 +1,25 @@
 # !/usr/bin/env python
 '''An example of using the stutter abstraction control lifting algorithm to control a linear system'''
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
-
 
 import logging
 from tulip.transys.transys import FTS, simu_abstract
 from tulip.abstract.cont_stutter_abstraction import *
 import numpy as np
-from polytope import box2poly
 from tulip.abstract import prop2part, discretize
-from tulip import hybrid, spec, synth
+from tulip import spec, synth
 import pickle
-from polytope import extreme
 
 import time
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 
-
-def build_abstraction():
-    '''Build the abstracted system and define a specification
-    '''
-    #7.67
-    stutter_sys = pickle.load( open( "data/stutter_slant_small_1.obj", "rb" ) )
-    #7.5
-    #stutter_sys = pickle.load( open( "data/stutter_slant_small_1.obj", "rb" ) )
-    orig_sys_dyn = stutter_sys.pwa
-
-    # Environment variables and requirements
-    env_vars = set()
-    env_init = set()
-    env_prog = set()
-    env_safe = set()
-
-    # System variables and requirements
-    sys_vars = set()
-    sys_init = {'init'}
-    sys_prog = {'target', 'init'}
-    #sys_safe = {'!obs'}
-    sys_safe = set()
-    sys_prog |= set()
-
-    specs = spec.GRSpec(env_vars, sys_vars, env_init, sys_init,
-                        env_safe, sys_safe, env_prog, sys_prog)
-    specs.qinit = '\E \A'
-
-    return stutter_sys, orig_sys_dyn, specs
-
-
-def linear_stutter_control():
+def discrete_stutter_control(ts, abs_ts, ctrl_mealy, spec):
 
     start_time = time.time()
 
-    # build an example finite transition system with a desired specification
-    [stutter_ts, orig_sys_dyn, specs] = build_abstraction()
-
-    plt.ion()
-    fig1 = plt.figure()
-    ax = fig1.add_subplot(1, 1, 1)
-    plot_partition(stutter_ts.ppp, ax=ax, plot_numbers=False)
-    plt.pause(.01)
-    plt.ioff()
-
-    # synthesize a controller for the abstraction as a Mealy machine representing the closed loop dynamics
-    ctrl_mealy = synth.synthesize(specs, sys=stutter_ts.ts, ignore_sys_init=False)
-    print(ctrl_mealy)
-    #print(stutter_ts)
-
     # identify an initial control and system state for simulation
-    ctrl_state, _, edge_data = ctrl_mealy.edges('Sinit', data=True)[0]
+    ctrl_state, _, edge_data = ctrl_mealy.edges(0, data=True)[0]
     orig_reg = stutter_ts.ppp[edge_data['loc']]
     orig_state = np.array([0.5,-0.5001])#orig_reg.chebXc - [0,0.001]
 
