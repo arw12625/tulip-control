@@ -293,10 +293,10 @@ if __name__ == '__main__':
     
     map_type = 'grid'
     num_robots = 2
-    dimension = [6,6]
+    dimension = [2,3]
     self_loops = True
     abs_mode = 'stutter' # stutter, bisim, or none
-    num_tests = 25
+    num_tests = 50
     num_sim_steps = 1000
     params = {
         "map_type":map_type,
@@ -340,15 +340,17 @@ if __name__ == '__main__':
     params['sim_times'] = []
 
     for i in range(params['num_tests']):
+        print(i)
         abs_ts, part_hash, abs_time, abs_ts_size = construct_abstraction(ts, params['abs_mode'])
         params['abs_times'].append(abs_time)
         params['abs_ts_sizes'].append(abs_ts_size)
-
+        
         ctrl, synth_time = perform_synth(abs_ts, specs)
         params['synth_times'].append(synth_time)
 
         state_seq, sim_time = simulate_controller(ts, abs_ts, part_hash, ctrl, init_state, params['num_sim_steps'])
         params['sim_times'].append(sim_time)
+        
 
     with open(test_name, 'w') as outfile:
          json.dump(params, outfile)
