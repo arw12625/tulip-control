@@ -293,9 +293,9 @@ if __name__ == '__main__':
     
     map_type = 'grid'
     num_robots = 2
-    dimension = [2,3]
+    dimension = [6,6]
     self_loops = True
-    abs_mode = 'stutter' # stutter, bisim, or none
+    abs_mode = 'bisim' # stutter, bisim, or none
     num_tests = 50
     num_sim_steps = 1000
     params = {
@@ -308,7 +308,7 @@ if __name__ == '__main__':
         "num_sim_steps":num_sim_steps,
         "date":str(date.today())
     }
-    test_name = "examples/stutter/data/"+map_type+"/dim"+str(dimension[0])+"_"+str(dimension[1])+"_rob"+str(num_robots)+"_abs_"+abs_mode+".json"
+    test_name = "examples/stutter/data/"+map_type+"/dim"+str(dimension[0])+"_"+str(dimension[1])+"_rob"+str(num_robots)+"_abs_"+abs_mode+"_absonly.json"
 
     test_data = {}
 
@@ -344,13 +344,13 @@ if __name__ == '__main__':
         abs_ts, part_hash, abs_time, abs_ts_size = construct_abstraction(ts, params['abs_mode'])
         params['abs_times'].append(abs_time)
         params['abs_ts_sizes'].append(abs_ts_size)
-        
+        '''
         ctrl, synth_time = perform_synth(abs_ts, specs)
         params['synth_times'].append(synth_time)
 
         state_seq, sim_time = simulate_controller(ts, abs_ts, part_hash, ctrl, init_state, params['num_sim_steps'])
         params['sim_times'].append(sim_time)
-        
+        '''
 
     with open(test_name, 'w') as outfile:
          json.dump(params, outfile)

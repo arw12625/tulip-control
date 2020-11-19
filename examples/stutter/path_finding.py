@@ -19,21 +19,26 @@ from tulip.abstract import prop2part, PropPreservingPartition
 from tulip.abstract.plot import plot_partition
 
 import matplotlib
-matplotlib.use('agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+import time
 
 from tulip.abstract.cont_stutter_abstraction import compute_stutter_abstraction, StutterAbstractionSettings, StutterPlotData, AbstractionType
 from tulip.abstract.discretization import discretize
 
 import pickle
 
+from datetime import datetime
+
 solvers.default_solver = 'glpk'
 #solvers.options['msg_lev']='GLP_MSG_OFF'
 logging.basicConfig(level=logging.WARNING)
-show = False
+show = True
 
 abs_type = 'bisim'
-export_name = "data/bi_10_13.obj"
+name = 'slant'
+file_base = "data/"+abs_type+"_"+name+"_"+datetime.today().strftime('%m-%d')
 
 # Continuous state space
 #cont_state_space = box2poly([[-3, 3], [-2, 2]])
@@ -42,7 +47,7 @@ cont_state_space = box2poly([[0, 6], [-5, 0]])
 # Continuous dynamics
 # (continuous-state, discrete-time)
 A = np.array([[1, 0], [0, 1]])
-B = 4*0.340001 * np.array([[1, 0], [0, 1]])
+B = 1.0001 * np.array([[1, 1], [-1, 1]])
 #B = 0.340001 * np.array([[1, 0], [0, 1]])
 #B = np.array([[0.7, -0.7], [0.7, 0.7]])/8
 E = np.array([[0], [0]])
@@ -73,18 +78,30 @@ init_reg = pc.Region(list_poly=[box2poly(np.array([[2, 3], [1, 2]]))])
 
 target_reg = pc.Region(list_poly=[box2poly(np.array([[-3, -2], [-2, -1]]))])
 '''
+'''
 init_reg = pc.Region(list_poly=[box2poly(np.array([[0, 1], [-1, 0]]))])
-
 target_reg = pc.Region(list_poly=[box2poly(np.array([[5,6], [-5,-4]]))])
+'''
+
+home_reg = pc.Region(list_poly=[box2poly(np.array([[0,1], [-1,0]]))])
+t0_reg = pc.Region(list_poly=[box2poly(np.array([[5,6], [-5,-4]]))])
+t1_reg = pc.Region(list_poly=[box2poly(np.array([[0,1], [-5,-4]]))])
+t2_reg = pc.Region(list_poly=[box2poly(np.array([[5,6], [-1,0]]))])
 
 # Define atomic propositions for relevant regions of state space
 cont_props = {}
 #cont_props['obs'] = obstacle_reg
+'''
 cont_props['init'] = init_reg
 cont_props['target'] = target_reg
-
+'''
+cont_props['home0'] = home_reg
+cont_props['task0'] = t0_reg
+cont_props['task1'] = t1_reg
+cont_props['task2'] = t2_reg
 #cont_state_space = cont_state_space.diff(obstacle_reg)
 #print(cont_state_space)
+
 for obs in obstacle_reg:
     cont_state_space = cont_state_space.diff(obs)
 
@@ -108,27 +125,37 @@ if abs_type == "stutter_bi":
 elif abs_type == "bisim":
     stutter_settings = StutterAbstractionSettings(
         backwards_horizon=1, abstraction_type=AbstractionType.STUTTER_BISIMULATION,
-        min_cell_volume=0.125, max_iter=30000, init_data_size=1000, max_num_poly_per_reg=50)
+        min_cell_volume=0.1, max_iter=300000, init_data_size=1000, max_num_poly_per_reg=50)
 elif abs_type == "dual":
     stutter_settings = StutterAbstractionSettings(
         backwards_horizon=1, abstraction_type=AbstractionType.STUTTER_DUAL_SIMULATION,
         min_cell_volume=0.125, max_iter=30000, init_data_size=1000, max_num_poly_per_reg=50)
 
 # Given dynamics & proposition-preserving partition, compute stutter bisimulation
-plot_data = StutterPlotData(save_img=False, plot_every=10)
+plot_data = StutterPlotData(save_img=True, plot_every=0)
 
+start_time = time.time()
 stutter_dynamics = compute_stutter_abstraction(
-        cont_partition, sys_dyn, stutter_settings, plot_data, init_index_list=[1]
+        cont_partition, sys_dyn, stutter_settings, plot_data, init_index_list=list(range(len(cont_partition)))
 )
-print(stutter_dynamics)
+#print(stutter_dynamics)
+abs_time = time.time() - start_time
+print("Time elapsed: " + str(abs_time))
 
 abs_pwa = stutter_dynamics
+abs_pwa.abs_time = abs_time
 
+export_name = file_base+".obj"
 #export abstraction for later use
 filehandler = open(export_name, 'wb')
 pickle.dump(abs_pwa, filehandler)
 
 # Visualize transitions in continuous domain (optional)
 
-plot_partition(stutter_dynamics.ppp, stutter_dynamics.ts,
-               stutter_dynamics.ppp2ts) if show else None
+if show:
+    plot_partition(stutter_dynamics.ppp, stutter_dynamics.ts,
+               stutter_dynamics.ppp2ts)
+    plt.savefig(file_base+'_trans.png')
+    plot_partition(stutter_dynamics.ppp, None,
+               stutter_dynamics.ppp2ts)
+    plt.savefig(file_base+'.png')

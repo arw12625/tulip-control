@@ -480,6 +480,7 @@ class _StutterAbstractionData(object):
         print(msg)
         logger.info(msg)
 
+        print('Iter' + str(iter_count))
         if not (plot_data is None):
             plot_data.plot_final(self.progress)
 
